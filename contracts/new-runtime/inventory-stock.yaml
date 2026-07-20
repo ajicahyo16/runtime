@@ -1,0 +1,18 @@
+id: inventory-stock
+name: Inventory Stock
+aggregateType: Inventory
+key: inventoryId
+size: 1.0 MB
+queries: 0
+status: dormant
+objects:
+  - InventoryRecord
+  -
+    name: order
+    fields: id, createdAt
+actions:
+  - CreateInventory
+  - UpdateInventory
+states:
+  - Draft
+  - Processed

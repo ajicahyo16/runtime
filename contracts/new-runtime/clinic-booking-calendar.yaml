@@ -1,0 +1,32 @@
+id: clinic-booking-calendar
+name: Clinic Booking Calendar
+aggregateType: Clinic
+key: appointmentId
+size: 1.2 MB
+queries: 0
+status: dormant
+objects:
+  -
+    name: Patient
+    fields: id, name, phone, medicalHistory
+  -
+    name: Appointment
+    fields: id, dateTime, status
+  -
+    name: DoctorSchedule
+    fields: id, doctorName, slots
+  -
+    name: Prescription
+    fields: id, medicine, dosage
+actions:
+  - BookAppointment
+  - CheckInPatient
+  - WritePrescription
+states:
+  -
+    obj: Appointment
+    flow:
+      - Scheduled
+      - Arrived
+      - CheckedOut
+      - NoShow

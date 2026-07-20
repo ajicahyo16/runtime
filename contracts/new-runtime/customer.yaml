@@ -1,0 +1,20 @@
+id: customer
+name: customer
+aggregateType: customer
+key: customerId
+size: 1.0 MB
+queries: 0
+status: dormant
+objects:
+  -
+    name: Record
+    fields: id, createdAt
+actions:
+  - CreateRecord
+  - UpdateRecord
+states:
+  -
+    obj: Record
+    flow:
+      - Pending
+      - Completed

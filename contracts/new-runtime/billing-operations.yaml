@@ -1,0 +1,15 @@
+id: billing-operations
+name: Billing Operations
+aggregateType: Billing
+key: billingId
+size: 1.0 MB
+queries: 0
+status: dormant
+objects:
+  - BillingRecord
+actions:
+  - CreateBilling
+  - UpdateBilling
+states:
+  - Draft
+  - Processed

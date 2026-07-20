@@ -1,0 +1,21 @@
+id: muehehe
+name: muehehe
+aggregateType: muehehe
+key: mueheheId
+size: 1.0 MB
+queries: 0
+status: dormant
+objects:
+  -
+    name: muehehe
+    fields: id, createdAt
+actions:
+  - Createmuehehe
+  - Updatemuehehe
+states:
+  -
+    obj: muehehe
+    flow:
+      - Draft
+      - Active
+      - Completed

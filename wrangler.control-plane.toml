@@ -1,0 +1,19 @@
+name = "lacify-control-plane"
+main = "control-plane/src/index.ts"
+compatibility_date = "2026-07-20"
+
+[vars]
+ALLOWED_ORIGIN = "https://runtime.getlacify.com"
+OAUTH_REDIRECT_URI = "https://runtime.getlacify.com/api/oauth/cloudflare/callback"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lacify-control-plane"
+database_id = "1e9c5200-6589-4d53-87e3-041a965643b4"
+migrations_dir = "control-plane/migrations"
+
+# Set these with Wrangler secrets before deployment:
+# npx wrangler secret put SESSION_ENCRYPTION_KEY --config wrangler.control-plane.toml
+# npx wrangler secret put CLOUDFLARE_OAUTH_CLIENT_SECRET --config wrangler.control-plane.toml
+# Set the non-secret client ID before deployment:
+# npx wrangler secret put CLOUDFLARE_OAUTH_CLIENT_ID --config wrangler.control-plane.toml

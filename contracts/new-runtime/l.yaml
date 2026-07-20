@@ -1,0 +1,20 @@
+id: l
+name: l
+aggregateType: L
+key: lId
+size: 1.0 MB
+queries: 0
+status: dormant
+objects:
+  -
+    name: LRecord
+    fields: id, status
+actions:
+  - CreateL
+  - UpdateL
+states:
+  -
+    obj: LRecord
+    flow:
+      - Draft
+      - Processed
