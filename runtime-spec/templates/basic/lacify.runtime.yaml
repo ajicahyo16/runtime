@@ -1,0 +1,5 @@
+version: lacify.dev/v1
+project: my-project
+runtime: request-response
+actors:
+  - ./actors/aggregate/actor.yaml

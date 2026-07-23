@@ -1,0 +1,5 @@
+version: lacify.dev/v1
+project: phase10-booking
+runtime: request-response
+actors:
+  - ./actors/booking-calendar/actor.yaml

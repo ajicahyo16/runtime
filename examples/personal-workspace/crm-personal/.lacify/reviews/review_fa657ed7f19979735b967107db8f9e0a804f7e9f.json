@@ -1,0 +1,153 @@
+{
+  "version": "lacify.dev/review/v2",
+  "reviewId": "review_fa657ed7f19979735b967107db8f9e0a804f7e9f",
+  "project": "crm-personal",
+  "environment": "development",
+  "projectFingerprint": "398a1d35c1e11764d0479a08f411eb7b54999b412937e4c7fbe96d0cdb584f4d",
+  "sourceManifestFingerprint": "c85fe2024776a8d5fddd8531be41d5f34bb71adbd563a90f8943cf44673938e5",
+  "sourceFiles": [
+    {
+      "path": "actors/workspace/actor.yaml",
+      "bytes": 423,
+      "hash": "b18bb218d6ea19a4334b15b91455a4c2b635e1220babcbe3e86e296230bb43e1"
+    },
+    {
+      "path": "actors/workspace/migrations/0001_initial.sql",
+      "bytes": 254,
+      "hash": "581739468676b94f43c39d05e38c01187ffedc0cd0e5b9e54241e4385ba76fa1"
+    },
+    {
+      "path": "actors/workspace/migrations/0100_workspace_projects.sql",
+      "bytes": 296,
+      "hash": "a98bbbca50f64a826ce82ba929268a97b2abb270b83502bad6f7420f4d507814"
+    },
+    {
+      "path": "actors/workspace/operations/create-note.operation.yaml",
+      "bytes": 316,
+      "hash": "75146967de6c098217593b100ff2b59bdeb00d18971f9084b2c3a9767dc36f67"
+    },
+    {
+      "path": "actors/workspace/operations/create-note.sql",
+      "bytes": 153,
+      "hash": "29e86401593028af904e7e9bceaaf5cb8e1ca88f7b48c02705dbcfe0366c27ec"
+    },
+    {
+      "path": "actors/workspace/operations/create-project.operation.yaml",
+      "bytes": 397,
+      "hash": "4cc60c720310fb1cac37479b5605f1e194789040d080211fb7202aac29882303"
+    },
+    {
+      "path": "actors/workspace/operations/create-project.sql",
+      "bytes": 209,
+      "hash": "4ce31b7e498c2299a02bf8140306eb52a1302fbb5ffb4afed9a7b4401087583d"
+    },
+    {
+      "path": "actors/workspace/operations/get-note.operation.yaml",
+      "bytes": 253,
+      "hash": "f4c94214ec599832b60dfb1bd054fd199311829f85fdbcb236130348e503a8c1"
+    },
+    {
+      "path": "actors/workspace/operations/get-note.sql",
+      "bytes": 86,
+      "hash": "5067692ac2daade93e209a7625902b0436f729c960c18ddb36dfc532d24a213e"
+    },
+    {
+      "path": "actors/workspace/operations/get-project.operation.yaml",
+      "bytes": 299,
+      "hash": "125df10f49c3a05137d0aae120c7d298457987ca9ce35f446512a9187a485fa2"
+    },
+    {
+      "path": "actors/workspace/operations/get-project.sql",
+      "bytes": 114,
+      "hash": "c2ff032ffb1c9b7ee03e432c310375dc0ef5a5d2ffd07f00eac4d321de6bf05d"
+    },
+    {
+      "path": "actors/workspace/operations/list-projects.operation.yaml",
+      "bytes": 311,
+      "hash": "896efc1e172627ecdadd1fae528b317d6b42013c74614fa83d4294832bd25847"
+    },
+    {
+      "path": "actors/workspace/operations/list-projects.sql",
+      "bytes": 141,
+      "hash": "626ec8a37936b65fd7006ee8ba6bef5d798f9dae26eb6f0dca554834fa1a0003"
+    },
+    {
+      "path": "lacify.runtime.yaml",
+      "bytes": 113,
+      "hash": "27c784bab3782d4b4be912cb6e8d73bac192b882869bf5a06c2c4cc10622414e"
+    },
+    {
+      "path": "tests/create-and-read.operation.json",
+      "bytes": 676,
+      "hash": "1cca2e8d2752e2cdcf4c81581f26c28faaa028fcd1efd69ad8a27737a90d0e18"
+    },
+    {
+      "path": "tests/workspace-projects.operation.json",
+      "bytes": 836,
+      "hash": "6f7f2497494879ebbea8121bcdb80bd8c6880413d70ec40f22390f1f409921df"
+    }
+  ],
+  "plans": [
+    {
+      "actor": "Workspace",
+      "valid": true,
+      "planId": "d3f2948e4e6ea04d9476c0f5d7987eb3d74ad19bb7f21172ce64b2b4b39da20a",
+      "alreadyApplied": [],
+      "pending": [
+        {
+          "id": "0001_initial",
+          "checksum": "23a53f5b622f1ac4e334ab702cdf759ecc165304d94ee8e5675fb753332acdad",
+          "classification": "additive",
+          "changes": [
+            {
+              "change": "additive",
+              "count": 2
+            }
+          ]
+        },
+        {
+          "id": "0100_workspace_projects",
+          "checksum": "e1c5d85926449ae283bc8a607fcc9e8d6c6b3f552c7e8c7d0b9b3839c7497f9c",
+          "classification": "additive",
+          "changes": [
+            {
+              "change": "additive",
+              "count": 2
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    }
+  ],
+  "tests": {
+    "passed": true,
+    "count": 2,
+    "files": [
+      {
+        "file": "create-and-read.operation.json",
+        "name": "create and read a private note",
+        "steps": 2
+      },
+      {
+        "file": "workspace-projects.operation.json",
+        "name": "workspace projects module",
+        "steps": 2
+      }
+    ]
+  },
+  "summary": {
+    "actors": 1,
+    "operations": 5,
+    "pendingMigrations": 2
+  },
+  "binding": {
+    "receiptVersion": 2,
+    "projectFingerprint": "398a1d35c1e11764d0479a08f411eb7b54999b412937e4c7fbe96d0cdb584f4d",
+    "environment": "development",
+    "planIds": [
+      "d3f2948e4e6ea04d9476c0f5d7987eb3d74ad19bb7f21172ce64b2b4b39da20a"
+    ],
+    "sourceManifestFingerprint": "c85fe2024776a8d5fddd8531be41d5f34bb71adbd563a90f8943cf44673938e5"
+  }
+}

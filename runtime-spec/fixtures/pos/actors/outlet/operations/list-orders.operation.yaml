@@ -1,0 +1,19 @@
+version: lacify.dev/operation/v1
+name: ListOrders
+kind: query
+sql: ./list-orders.sql
+input: {}
+result:
+  mode: many
+  maxRows: 100
+  fields:
+    id:
+      type: string
+    total:
+      type: integer
+    status:
+      type: string
+  pagination:
+    cursorField: id
+    defaultPageSize: 20
+    maxPageSize: 50

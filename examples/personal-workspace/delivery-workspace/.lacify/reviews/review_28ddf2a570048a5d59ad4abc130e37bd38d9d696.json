@@ -1,0 +1,169 @@
+{
+  "version": "lacify.dev/review/v2",
+  "reviewId": "review_28ddf2a570048a5d59ad4abc130e37bd38d9d696",
+  "project": "delivery-workspace",
+  "environment": "development",
+  "projectFingerprint": "5ea7fb7dfe92eb8f2d027999ef714fa916714b3fbb351959e9104649ff0bc563",
+  "sourceManifestFingerprint": "867ee10120b044c1645cf88d26c2a0c32ffae3864a9b2ba5d9b99f7f9836b459",
+  "sourceFiles": [
+    {
+      "path": "actors/workspace/actor.yaml",
+      "bytes": 519,
+      "hash": "9f41fe8e3cdfb9987a5d7d183ddd24e9cfcc8b35272d6a47f945b07681191df4"
+    },
+    {
+      "path": "actors/workspace/migrations/0001_initial.sql",
+      "bytes": 254,
+      "hash": "581739468676b94f43c39d05e38c01187ffedc0cd0e5b9e54241e4385ba76fa1"
+    },
+    {
+      "path": "actors/workspace/migrations/0110_workspace_tasks.sql",
+      "bytes": 285,
+      "hash": "a58a67e767e009abc5f97165dc8a83c6f183018c8ba3a6906bc86807f8f5bd2b"
+    },
+    {
+      "path": "actors/workspace/migrations/0120_task_priority.sql",
+      "bytes": 66,
+      "hash": "0f346c344797934a7b4be25db9cbe28ba1c29938cd79a161a17d0e456db52980"
+    },
+    {
+      "path": "actors/workspace/operations/complete-task.operation.yaml",
+      "bytes": 266,
+      "hash": "4ded21cad7054156bb27cdafc3904f5d95fc16a2afb171a31a1e6656cbb23374"
+    },
+    {
+      "path": "actors/workspace/operations/complete-task.sql",
+      "bytes": 133,
+      "hash": "d28c4bc22bb7d7b151021c4e2175a141d0d9ce9761fe086a5df53bf8bbbb90c7"
+    },
+    {
+      "path": "actors/workspace/operations/create-note.operation.yaml",
+      "bytes": 316,
+      "hash": "75146967de6c098217593b100ff2b59bdeb00d18971f9084b2c3a9767dc36f67"
+    },
+    {
+      "path": "actors/workspace/operations/create-note.sql",
+      "bytes": 153,
+      "hash": "29e86401593028af904e7e9bceaaf5cb8e1ca88f7b48c02705dbcfe0366c27ec"
+    },
+    {
+      "path": "actors/workspace/operations/create-task.operation.yaml",
+      "bytes": 307,
+      "hash": "5b3c01431620bb6e67aa01dde030f10927a2622dd6f4e46c75b297d58d41f7db"
+    },
+    {
+      "path": "actors/workspace/operations/create-task.sql",
+      "bytes": 165,
+      "hash": "a0d218be88a902b3d7a5e3c24f24dd9f0c075d5a41b0d478fab6b186522bd3f6"
+    },
+    {
+      "path": "actors/workspace/operations/get-note.operation.yaml",
+      "bytes": 253,
+      "hash": "f4c94214ec599832b60dfb1bd054fd199311829f85fdbcb236130348e503a8c1"
+    },
+    {
+      "path": "actors/workspace/operations/get-note.sql",
+      "bytes": 86,
+      "hash": "5067692ac2daade93e209a7625902b0436f729c960c18ddb36dfc532d24a213e"
+    },
+    {
+      "path": "actors/workspace/operations/list-tasks.operation.yaml",
+      "bytes": 357,
+      "hash": "223ed6e471a5a0208bfb3e17d015614d23a9dd6c503fb4849f733f5d97c14b7f"
+    },
+    {
+      "path": "actors/workspace/operations/list-tasks.sql",
+      "bytes": 171,
+      "hash": "0e95bf48ce3df58adafe5a0a36a36f8c8878c6198040bb8a56138d779384cfb7"
+    },
+    {
+      "path": "actors/workspace/operations/set-task-priority.operation.yaml",
+      "bytes": 321,
+      "hash": "f1b7d9d66811131f45e6227d5c02ceeacd821b690cb3494b59f5621ae325bdef"
+    },
+    {
+      "path": "actors/workspace/operations/set-task-priority.sql",
+      "bytes": 139,
+      "hash": "e10fd8952e26724d6ac01127a9f526fbbf51448f1a8b9f169d7d09b81549d78b"
+    },
+    {
+      "path": "lacify.runtime.yaml",
+      "bytes": 119,
+      "hash": "488f9b73bcf24bb19e09f13dbd36345fe3493dcc9d6848dfe504fd8061dc506f"
+    },
+    {
+      "path": "tests/create-and-complete-task.operation.json",
+      "bytes": 750,
+      "hash": "4ffc1a920343641994baf91cac3fded33adce7ff846427d2cbaff6efc49f9540"
+    }
+  ],
+  "plans": [
+    {
+      "actor": "DeliveryWorkspace",
+      "valid": true,
+      "planId": "20e081d6f6b81334efc06d13ba3da56b285a18cd9f08da8ab5536c12a65e0ac1",
+      "alreadyApplied": [],
+      "pending": [
+        {
+          "id": "0001_initial",
+          "checksum": "23a53f5b622f1ac4e334ab702cdf759ecc165304d94ee8e5675fb753332acdad",
+          "classification": "additive",
+          "changes": [
+            {
+              "change": "additive",
+              "count": 2
+            }
+          ]
+        },
+        {
+          "id": "0110_workspace_tasks",
+          "checksum": "b74dafb66e0bbfb2067e8dd4de7103fd6be0081a8c9e891f46b61f14cacfe6ff",
+          "classification": "additive",
+          "changes": [
+            {
+              "change": "additive",
+              "count": 2
+            }
+          ]
+        },
+        {
+          "id": "0120_task_priority",
+          "checksum": "2144038a91e1f1d9117d517a36136f81f1d2ff429661629ec59670e25003e626",
+          "classification": "additive",
+          "changes": [
+            {
+              "change": "additive",
+              "count": 1
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    }
+  ],
+  "tests": {
+    "passed": true,
+    "count": 1,
+    "files": [
+      {
+        "file": "create-and-complete-task.operation.json",
+        "name": "create and complete a delivery task",
+        "steps": 2
+      }
+    ]
+  },
+  "summary": {
+    "actors": 1,
+    "operations": 6,
+    "pendingMigrations": 3
+  },
+  "binding": {
+    "receiptVersion": 2,
+    "projectFingerprint": "5ea7fb7dfe92eb8f2d027999ef714fa916714b3fbb351959e9104649ff0bc563",
+    "environment": "development",
+    "planIds": [
+      "20e081d6f6b81334efc06d13ba3da56b285a18cd9f08da8ab5536c12a65e0ac1"
+    ],
+    "sourceManifestFingerprint": "867ee10120b044c1645cf88d26c2a0c32ffae3864a9b2ba5d9b99f7f9836b459"
+  }
+}

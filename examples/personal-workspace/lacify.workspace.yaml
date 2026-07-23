@@ -1,0 +1,9 @@
+version: lacify.dev/workspace/v1
+name: personal-platform
+projects:
+  - path: crm-operations
+  - path: crm-personal
+  - path: delivery-workspace
+  - path: knowledge-base
+  - path: notes-workspace
+  - path: project-manager

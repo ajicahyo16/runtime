@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
-import { Server, Database, Play, Code } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Check, Circle, Code, Database, Play, Server, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { loadContracts } from '@/lib/contracts'
 import type { Actor } from '@/components/ActorCard'
 
 interface SqliteRow {
@@ -16,230 +17,152 @@ interface AuditLog {
   type: 'info' | 'success' | 'warn'
 }
 
+const lifecycle = ['Wake', 'Validate', 'Execute', 'Persist', 'Update summary', 'Respond', 'Sleep']
+
+const time = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
+function rowsFor(actor: Actor): SqliteRow[] {
+  const object = actor.objects?.[0]?.name || actor.aggregateType || 'Record'
+  const state = actor.states?.find((item) => item.obj === object)?.flow?.[0] || actor.states?.[0]?.flow?.[0] || 'Draft'
+  return [
+    { id: `${actor.key || 'id'}_101`, type: object, state, data: JSON.stringify({ name: 'Sample item A', quantity: 10 }) },
+    { id: `${actor.key || 'id'}_102`, type: object, state, data: JSON.stringify({ name: 'Sample item B', quantity: 25 }) },
+  ]
+}
+
 export function SimulateView({ project }: { project: string }) {
   const [actors, setActors] = useState<Actor[]>([])
   const [selectedActor, setSelectedActor] = useState<Actor | null>(null)
   const [rows, setRows] = useState<SqliteRow[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
-  const [sdkOverlayCode, setSdkOverlayCode] = useState<string | null>(null)
+  const [activeStep, setActiveStep] = useState<number | null>(null)
+  const [isRunning, setIsRunning] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const runId = useRef(0)
 
   useEffect(() => {
-    loadActors()
+    let current = true
+    runId.current += 1
+    setLoadError(null)
+    setActors([])
+    setSelectedActor(null)
+    setRows([])
+    setAuditLogs([])
+    setActiveStep(null)
+    setIsRunning(false)
+
+    loadContracts(project)
+      .then(({ actors: loaded }) => {
+        if (!current) return
+        setActors(loaded)
+        if (loaded[0]) selectActor(loaded[0])
+      })
+      .catch((error: unknown) => {
+        if (current) setLoadError(error instanceof Error ? error.message : 'Business objects could not be loaded.')
+      })
+
+    return () => {
+      current = false
+      runId.current += 1
+    }
   }, [project])
 
-  const loadActors = async () => {
-    try {
-      const response = await fetch(`/api/load-contracts?project=${project}`)
-      const data = await response.json()
-      if (data.success && data.actors) {
-        setActors(data.actors)
-        if (data.actors.length > 0) {
-          selectActor(data.actors[0])
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load actors in simulate view:', e)
-    }
-  }
-
-  const selectActor = (actor: Actor) => {
+  function selectActor(actor: Actor) {
+    if (isRunning) return
     setSelectedActor(actor)
-    // Generate initial mock SQLite rows for this actor
-    const primaryObj = actor.objects?.[0]?.name || 'Record'
-    const initialState = actor.states?.[0]?.flow?.[0] || 'DRAFT'
+    setRows(rowsFor(actor))
+    setActiveStep(null)
+  }
 
-    setRows([
-      {
-        id: `${actor.key || 'id'}_101`,
-        type: primaryObj,
-        state: initialState,
-        data: JSON.stringify({ name: 'Sample Item A', quantity: 10 })
-      },
-      {
-        id: `${actor.key || 'id'}_102`,
-        type: primaryObj,
-        state: initialState,
-        data: JSON.stringify({ name: 'Sample Item B', quantity: 25 })
+  async function triggerCommand(actionName: string) {
+    if (!selectedActor || isRunning) return
+
+    const run = ++runId.current
+    const actor = selectedActor
+    const object = actor.objects?.[0]?.name || actor.aggregateType || 'Record'
+    const stateFlow = actor.states?.find((item) => item.obj === object)?.flow || actor.states?.[0]?.flow || ['Draft', 'Completed']
+    const currentState = rows[0]?.state
+    const currentIndex = Math.max(0, stateFlow.findIndex((state) => state === currentState))
+    const nextState = stateFlow[(currentIndex + 1) % stateFlow.length] || 'Completed'
+    const id = `${actor.key || 'id'}_${String(Date.now()).slice(-6)}`
+
+    setIsRunning(true)
+    setAuditLogs((previous) => [{ time: time(), text: `${actionName} accepted for local lifecycle preview.`, type: 'info' }, ...previous])
+
+    for (let step = 0; step < lifecycle.length; step += 1) {
+      if (run !== runId.current) return
+      setActiveStep(step)
+      await new Promise((resolve) => window.setTimeout(resolve, 260))
+      if (run !== runId.current) return
+
+      if (lifecycle[step] === 'Persist') {
+        const row: SqliteRow = {
+          id,
+          type: object,
+          state: nextState,
+          data: JSON.stringify({ command: actionName, preview: true, status: 'persisted' }),
+        }
+        setRows((previous) => [row, ...previous])
       }
-    ])
+    }
+
+    if (run === runId.current) {
+      setAuditLogs((previous) => [{ time: time(), text: `${actor.name} transitioned to ${nextState}. No deployed runtime or production data was changed.`, type: 'success' }, ...previous])
+      setIsRunning(false)
+      setActiveStep(null)
+    }
   }
 
-  const triggerCommand = (actionName: string) => {
-    if (!selectedActor) return
-
-    const keyVal = `${selectedActor.key || 'id'}_${Math.floor(100 + Math.random() * 900)}`
-    const primaryObj = selectedActor.objects?.[0]?.name || 'Record'
-    const statesFlow = selectedActor.states?.[0]?.flow || ['DRAFT', 'COMPLETED']
-    const nextState = statesFlow[Math.floor(Math.random() * statesFlow.length)]
-
-    // Trigger overlay code snippet
-    const codeSnippet = `await client.${actionName.charAt(0).toLowerCase() + actionName.slice(1)}("${keyVal}", {\n  timestamp: Date.now()\n});`
-    setSdkOverlayCode(codeSnippet)
-
-    setTimeout(() => {
-      setSdkOverlayCode(null)
-    }, 2500)
-
-    // Add new row to SQLite state inspector
-    const newRow: SqliteRow = {
-      id: keyVal,
-      type: primaryObj,
-      state: nextState,
-      data: JSON.stringify({ action: actionName, status: 'PROCESSED' })
-    }
-    setRows((prev) => [newRow, ...prev])
-
-    // Add log entry to audit ledger
-    const logItem: AuditLog = {
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      text: `[SDK] ${selectedActor.name} executed command "${actionName}". DO State updated to ${nextState}.`,
-      type: 'success'
-    }
-    setAuditLogs((prev) => [logItem, ...prev])
-  }
+  const selectedCommand = selectedActor?.actions?.[0] || 'Run command'
 
   return (
-    <div className="space-y-6 relative">
-      {/* Floating Code Overlay */}
-      {sdkOverlayCode && (
-        <div className="fixed bottom-6 right-6 z-50 p-4 rounded-xl bg-black/90 border border-primary/40 shadow-2xl backdrop-blur-md max-w-md animate-in fade-in slide-in-from-bottom-5">
-          <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-primary">
-            <Code className="size-4" />
-            SDK Client Request Triggered
-          </div>
-          <pre className="p-3 rounded bg-black/60 font-mono text-xs text-emerald-400 m-0 overflow-x-auto">
-            {sdkOverlayCode}
-          </pre>
-          <div className="text-[10px] text-muted-foreground mt-2">Running background routing to correct Durable Object partition...</div>
+    <div className="simulate-view">
+      <section className="simulate-notice" role="status">
+        <ShieldCheck className="size-4 shrink-0" />
+        <div><strong>Local preview only.</strong> This is a browser-session simulation. It does not call a deployed Worker, SQLite database, or production environment.</div>
+      </section>
+
+      <section className="simulate-lifecycle" aria-label="Request lifecycle">
+        <div>
+          <p className="simulate-eyebrow">Request-response lifecycle</p>
+          <h2>{isRunning ? 'Processing local command' : 'Ready to test a command'}</h2>
+          <p>{selectedActor ? `${selectedActor.name} · ${selectedCommand}` : 'Select an aggregate to begin.'}</p>
         </div>
-      )}
+        <ol className="simulate-steps">
+          {lifecycle.map((step, index) => {
+            const complete = activeStep !== null && index < activeStep
+            const active = activeStep === index
+            return <li key={step} className={complete ? 'complete' : active ? 'active' : ''}>
+              <span>{complete ? <Check className="size-3" /> : <Circle className="size-3" />}</span>{step}
+            </li>
+          })}
+        </ol>
+      </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Aggregates list & Operations */}
-        <div className="lg:col-span-4 space-y-6">
-          {/* Select Aggregate */}
-          <section className="glass-card p-5">
-            <div className="panel-header flex items-center gap-2 mb-2">
-              <Server className="size-5 text-primary" />
-              <h2 className="text-base font-bold m-0">Select Aggregate</h2>
-            </div>
-            <p className="panel-desc text-xs text-muted-foreground mb-4">Select designed boundary to trigger local simulation.</p>
-
-            <div className="space-y-2">
-              {actors.map((actor) => (
-                <button
-                  key={actor.id}
-                  onClick={() => selectActor(actor)}
-                  className={`w-full text-left p-3 rounded-lg text-xs font-medium transition-all flex justify-between items-center ${
-                    selectedActor?.id === actor.id
-                      ? 'bg-primary/20 border border-primary/40 text-primary font-bold'
-                      : 'bg-black/30 border border-white/5 text-slate-300 hover:bg-white/5'
-                  }`}
-                >
-                  <span>{actor.name}</span>
-                  <span className="text-[10px] text-muted-foreground uppercase">{actor.status}</span>
-                </button>
-              ))}
-            </div>
+      <div className="simulate-workbench">
+        <aside className="simulate-sidebar">
+          <section className="simulate-panel">
+            <div className="simulate-panel__heading"><Server className="size-4" /><div><h2>Aggregate</h2><p>Choose the draft contract to test.</p></div></div>
+            {loadError ? <p className="simulate-error">{loadError}</p> : actors.length === 0 ? <p className="simulate-empty">No business objects exist in this project yet.</p> : (
+              <div className="simulate-actor-list">{actors.map((actor) => <button key={actor.id} type="button" onClick={() => selectActor(actor)} disabled={isRunning} className={`simulate-actor ${selectedActor?.id === actor.id ? 'selected' : ''}`}><span><strong>{actor.name}</strong><small>{actor.aggregateType} · key: {actor.key}</small></span><span>{actor.status}</span></button>)}</div>
+            )}
           </section>
 
-          {/* Command Operations */}
-          {selectedActor && (
-            <section className="glass-card p-5">
-              <div className="panel-header flex items-center gap-2 mb-2">
-                <Play className="size-5 text-emerald-400" />
-                <h2 className="text-base font-bold m-0">{selectedActor.name} Operations</h2>
-              </div>
-              <p className="panel-desc text-xs text-muted-foreground mb-4">Trigger compiled SDK command functions to simulate business transactions.</p>
+          {selectedActor && <section className="simulate-panel simulate-commands">
+            <div className="simulate-panel__heading"><Play className="size-4" /><div><h2>Commands</h2><p>Each run advances the configured state flow.</p></div></div>
+            <div className="simulate-command-list">{(selectedActor.actions?.length ? selectedActor.actions : ['Run command']).map((action) => <Button key={action} variant="outline" size="sm" onClick={() => triggerCommand(action)} disabled={isRunning}><Play className="size-3" />{isRunning ? 'Running lifecycle…' : action}</Button>)}</div>
+          </section>}
+        </aside>
 
-              <div className="space-y-2">
-                {(selectedActor.actions || ['CreateOrder', 'AddOrderItem', 'PayOrder']).map((act) => (
-                  <Button
-                    key={act}
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-start font-mono text-xs"
-                    onClick={() => triggerCommand(act)}
-                  >
-                    <Play className="size-3 text-emerald-400 mr-2" />
-                    {act}()
-                  </Button>
-                ))}
-              </div>
-            </section>
-          )}
-        </div>
-
-        {/* Right Column: SQLite Table & Audit Event Stream */}
-        <div className="lg:col-span-8 space-y-6">
-          {/* SQLite Table */}
-          <section className="glass-card p-6">
-            <div className="panel-header flex items-center gap-2 mb-2">
-              <Database className="size-5 text-purple-400" />
-              <h2 className="text-base font-bold m-0">SQLite Database Table (Inside Durable Object)</h2>
-            </div>
-            <p className="panel-desc text-xs text-muted-foreground mb-4">
-              Displays live SQLite table values persisting state partitions inside this specific DO context.
-            </p>
-
-            <div className="overflow-x-auto min-h-[200px]">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-white/10 text-muted-foreground uppercase text-[10px]">
-                    <th className="p-2">Record ID</th>
-                    <th className="p-2">Object Type</th>
-                    <th className="p-2">Current State</th>
-                    <th className="p-2">Data Payload</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5 font-mono text-[11px] text-slate-300">
-                  {rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="text-center py-8 text-muted-foreground italic">
-                        Select an aggregate on the left to inspect SQLite tables.
-                      </td>
-                    </tr>
-                  ) : (
-                    rows.map((row, i) => (
-                      <tr key={i} className="hover:bg-white/5 transition-colors">
-                        <td className="p-2.5 font-bold text-primary">{row.id}</td>
-                        <td className="p-2.5">{row.type}</td>
-                        <td className="p-2.5">
-                          <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-400 font-medium">
-                            {row.state}
-                          </span>
-                        </td>
-                        <td className="p-2.5 text-slate-400 truncate max-w-[250px]">{row.data}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+        <div className="simulate-output">
+          <section className="simulate-panel">
+            <div className="simulate-panel__heading"><Database className="size-4" /><div><h2>State preview</h2><p>In-memory records produced by the persist step. Cleared on reload.</p></div></div>
+            <div className="overflow-x-auto min-h-[200px]"><table className="simulate-table"><thead><tr><th>Record ID</th><th>Object type</th><th>State</th><th>Data payload</th></tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={4} className="simulate-empty">Select an aggregate to inspect its preview.</td></tr> : rows.map((row) => <tr key={row.id}><td>{row.id}</td><td>{row.type}</td><td><span className="simulate-state">{row.state}</span></td><td title={row.data}>{row.data}</td></tr>)}</tbody></table></div>
           </section>
 
-          {/* Audit Event Ledger */}
-          <section className="glass-card p-6">
-            <div className="panel-header flex items-center gap-2 mb-2">
-              <Code className="size-5 text-amber-400" />
-              <h2 className="text-base font-bold m-0">Audit Event Ledger</h2>
-            </div>
-            <p className="panel-desc text-xs text-muted-foreground mb-4">Emitted transaction event stream records generated by aggregate state transitions.</p>
-
-            <div className="p-3 rounded-xl bg-black/40 border border-white/5 font-mono text-xs max-h-[220px] overflow-y-auto space-y-2">
-              {auditLogs.length === 0 ? (
-                <div className="text-center py-6 text-muted-foreground italic">
-                  No events emitted. Run a command on the left to start transaction simulation.
-                </div>
-              ) : (
-                auditLogs.map((log, i) => (
-                  <div key={i} className="text-emerald-400 flex items-start gap-2">
-                    <span className="text-[10px] text-muted-foreground shrink-0">{log.time}</span>
-                    <span>{log.text}</span>
-                  </div>
-                ))
-              )}
-            </div>
+          <section className="simulate-panel">
+            <div className="simulate-panel__heading"><Code className="size-4" /><div><h2>Preview event log</h2><p>Trace generated by this browser-only simulation.</p></div></div>
+            <div className="simulate-log">{auditLogs.length === 0 ? <div className="simulate-empty">Run a command to see the local lifecycle trace.</div> : auditLogs.map((log, index) => <div key={`${log.time}-${index}`} className={`simulate-log-entry ${log.type}`}><time>{log.time}</time><span>{log.text}</span></div>)}</div>
           </section>
         </div>
       </div>

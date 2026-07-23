@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "installations": [
+    {
+      "module": "workspace-projects",
+      "moduleVersion": "1.0.0",
+      "moduleFingerprint": "562cdb41aa8e876dc049b36fac251f978f7e7388240c82af2adff1380770c360",
+      "actor": "Workspace",
+      "projectFingerprintBefore": "4c6e125edf517b18482943b7af64612448bd12676c595e8a250bf01d617d062d",
+      "projectFingerprintAfter": "398a1d35c1e11764d0479a08f411eb7b54999b412937e4c7fbe96d0cdb584f4d",
+      "installedAt": "2026-07-23T16:46:44.811Z"
+    }
+  ]
+}

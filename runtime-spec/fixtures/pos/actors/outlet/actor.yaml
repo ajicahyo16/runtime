@@ -1,0 +1,36 @@
+version: lacify.dev/actor/v1
+name: Outlet
+description: Owns shifts, orders, payments, and inventory for one retail outlet.
+partitionBy: outletId
+storage: sqlite
+commands:
+  - OpenShift
+  - PlaceOrder
+  - CapturePayment
+  - AdjustStock
+  - CloseShift
+operations:
+  - ./operations/place-order.operation.yaml
+  - ./operations/get-order.operation.yaml
+  - ./operations/list-orders.operation.yaml
+stateMachines:
+  - name: OrderLifecycle
+    initial: Draft
+    states:
+      - Draft
+      - Confirmed
+      - Paid
+      - Completed
+    transitions:
+      - command: PlaceOrder
+        from: Draft
+        to: Confirmed
+      - command: CapturePayment
+        from: Confirmed
+        to: Paid
+summaries:
+  - name: daily_sales
+    period: daily
+    sourceTable: orders
+secretRefs:
+  - PAYMENT_API_KEY

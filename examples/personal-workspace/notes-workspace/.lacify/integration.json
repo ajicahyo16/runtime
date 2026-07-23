@@ -1,0 +1,34 @@
+{
+  "version": "lacify.dev/integration/v1",
+  "project": "notes-workspace",
+  "projectFingerprint": "e548d1b7f43ce80e28c5764af16b2542bf9b3c3eb2f83ae69029ad1da0241e98",
+  "generatedClient": "generated/lacify/client.ts",
+  "serverAdapter": "generated/lacify/server.ts",
+  "requiredEnvironment": [
+    {
+      "name": "LACIFY_RUNTIME_URL",
+      "secret": false,
+      "scope": "server-only"
+    },
+    {
+      "name": "LACIFY_RUNTIME_TOKEN",
+      "secret": true,
+      "scope": "server-only"
+    }
+  ],
+  "actors": [
+    {
+      "name": "NotesWorkspace",
+      "operations": [
+        {
+          "name": "CreateNote",
+          "kind": "command"
+        },
+        {
+          "name": "GetNote",
+          "kind": "query"
+        }
+      ]
+    }
+  ]
+}

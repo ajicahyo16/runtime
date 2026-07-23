@@ -1,0 +1,14 @@
+{
+  "name": "project data remains inside its workspace partition",
+  "actor": "Workspace",
+  "partition": "other-workspace",
+  "steps": [
+    {
+      "operation": "GetProject",
+      "input": {
+        "projectId": "lacify-runtime"
+      },
+      "expectData": null
+    }
+  ]
+}

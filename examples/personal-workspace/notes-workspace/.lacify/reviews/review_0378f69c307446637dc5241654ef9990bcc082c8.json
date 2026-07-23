@@ -1,0 +1,97 @@
+{
+  "version": "lacify.dev/review/v2",
+  "reviewId": "review_0378f69c307446637dc5241654ef9990bcc082c8",
+  "project": "notes-workspace",
+  "environment": "development",
+  "projectFingerprint": "e548d1b7f43ce80e28c5764af16b2542bf9b3c3eb2f83ae69029ad1da0241e98",
+  "sourceManifestFingerprint": "0d47b69973e9d8746230e5225656f4a562a2b43463673dc5f36d612512b633de",
+  "sourceFiles": [
+    {
+      "path": "actors/workspace/actor.yaml",
+      "bytes": 278,
+      "hash": "1bb8d8eb111d09bf31b4865d91b2c6d77129ec77955932a239f00407863d1aa9"
+    },
+    {
+      "path": "actors/workspace/migrations/0001_initial.sql",
+      "bytes": 254,
+      "hash": "581739468676b94f43c39d05e38c01187ffedc0cd0e5b9e54241e4385ba76fa1"
+    },
+    {
+      "path": "actors/workspace/operations/create-note.operation.yaml",
+      "bytes": 316,
+      "hash": "75146967de6c098217593b100ff2b59bdeb00d18971f9084b2c3a9767dc36f67"
+    },
+    {
+      "path": "actors/workspace/operations/create-note.sql",
+      "bytes": 153,
+      "hash": "29e86401593028af904e7e9bceaaf5cb8e1ca88f7b48c02705dbcfe0366c27ec"
+    },
+    {
+      "path": "actors/workspace/operations/get-note.operation.yaml",
+      "bytes": 253,
+      "hash": "f4c94214ec599832b60dfb1bd054fd199311829f85fdbcb236130348e503a8c1"
+    },
+    {
+      "path": "actors/workspace/operations/get-note.sql",
+      "bytes": 86,
+      "hash": "5067692ac2daade93e209a7625902b0436f729c960c18ddb36dfc532d24a213e"
+    },
+    {
+      "path": "lacify.runtime.yaml",
+      "bytes": 116,
+      "hash": "860516506eb6fd0d4f54e3351aadb21df39aaebc607b6c3e089b4eeb1b23c134"
+    },
+    {
+      "path": "tests/create-and-read-note.operation.json",
+      "bytes": 778,
+      "hash": "a00e3c4976d5aa02cd9d9ccc2067b56f23208365b0530dee47588735783d53b4"
+    }
+  ],
+  "plans": [
+    {
+      "actor": "NotesWorkspace",
+      "valid": true,
+      "planId": "0e8ee5d161b8a4fb40545aaa27cbe108506c6b355e2b5afadbac2915a132e481",
+      "alreadyApplied": [],
+      "pending": [
+        {
+          "id": "0001_initial",
+          "checksum": "23a53f5b622f1ac4e334ab702cdf759ecc165304d94ee8e5675fb753332acdad",
+          "classification": "additive",
+          "changes": [
+            {
+              "change": "additive",
+              "count": 2
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    }
+  ],
+  "tests": {
+    "passed": true,
+    "count": 1,
+    "files": [
+      {
+        "file": "create-and-read-note.operation.json",
+        "name": "create and read a private notes-workspace note",
+        "steps": 2
+      }
+    ]
+  },
+  "summary": {
+    "actors": 1,
+    "operations": 2,
+    "pendingMigrations": 1
+  },
+  "binding": {
+    "receiptVersion": 2,
+    "projectFingerprint": "e548d1b7f43ce80e28c5764af16b2542bf9b3c3eb2f83ae69029ad1da0241e98",
+    "environment": "development",
+    "planIds": [
+      "0e8ee5d161b8a4fb40545aaa27cbe108506c6b355e2b5afadbac2915a132e481"
+    ],
+    "sourceManifestFingerprint": "0d47b69973e9d8746230e5225656f4a562a2b43463673dc5f36d612512b633de"
+  }
+}

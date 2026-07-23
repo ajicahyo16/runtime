@@ -1,0 +1,31 @@
+{
+  "name": "create and read an operations note",
+  "actor": "Workspace",
+  "partition": "crm-operations-acceptance",
+  "steps": [
+    {
+      "operation": "CreateNote",
+      "idempotencyKey": "crm-operations-note-1",
+      "input": {
+        "noteId": "operations-note",
+        "title": "Operations follow-up",
+        "body": "Project-specific fixture created after blueprint materialization"
+      },
+      "expectData": {
+        "id": "operations-note",
+        "title": "Operations follow-up"
+      }
+    },
+    {
+      "operation": "GetNote",
+      "input": {
+        "noteId": "operations-note"
+      },
+      "expectData": {
+        "id": "operations-note",
+        "title": "Operations follow-up",
+        "body": "Project-specific fixture created after blueprint materialization"
+      }
+    }
+  ]
+}

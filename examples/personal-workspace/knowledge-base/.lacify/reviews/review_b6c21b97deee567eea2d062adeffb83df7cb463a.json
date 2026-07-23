@@ -1,0 +1,97 @@
+{
+  "version": "lacify.dev/review/v2",
+  "reviewId": "review_b6c21b97deee567eea2d062adeffb83df7cb463a",
+  "project": "knowledge-base",
+  "environment": "development",
+  "projectFingerprint": "4d8b0056f015aec46cf01217e310cfcbb980220bc2bf6a88eb9c71647b297d26",
+  "sourceManifestFingerprint": "f14821e2d98a32fae78dd52993db3cb0f1686994527c56244643b0fa35f089cd",
+  "sourceFiles": [
+    {
+      "path": "actors/workspace/actor.yaml",
+      "bytes": 268,
+      "hash": "b90de048b2c36e7e90cb44bf42ce06e18be26b31bf7eb4fd86af8c20cf9c604c"
+    },
+    {
+      "path": "actors/workspace/migrations/0001_initial.sql",
+      "bytes": 254,
+      "hash": "581739468676b94f43c39d05e38c01187ffedc0cd0e5b9e54241e4385ba76fa1"
+    },
+    {
+      "path": "actors/workspace/operations/create-note.operation.yaml",
+      "bytes": 316,
+      "hash": "75146967de6c098217593b100ff2b59bdeb00d18971f9084b2c3a9767dc36f67"
+    },
+    {
+      "path": "actors/workspace/operations/create-note.sql",
+      "bytes": 153,
+      "hash": "29e86401593028af904e7e9bceaaf5cb8e1ca88f7b48c02705dbcfe0366c27ec"
+    },
+    {
+      "path": "actors/workspace/operations/get-note.operation.yaml",
+      "bytes": 253,
+      "hash": "f4c94214ec599832b60dfb1bd054fd199311829f85fdbcb236130348e503a8c1"
+    },
+    {
+      "path": "actors/workspace/operations/get-note.sql",
+      "bytes": 86,
+      "hash": "5067692ac2daade93e209a7625902b0436f729c960c18ddb36dfc532d24a213e"
+    },
+    {
+      "path": "lacify.runtime.yaml",
+      "bytes": 115,
+      "hash": "9a948ca74305d269db59e2a5d07c8015c777aba5c56fa99cd0a0838fd992a673"
+    },
+    {
+      "path": "tests/create-and-read.operation.json",
+      "bytes": 676,
+      "hash": "1cca2e8d2752e2cdcf4c81581f26c28faaa028fcd1efd69ad8a27737a90d0e18"
+    }
+  ],
+  "plans": [
+    {
+      "actor": "Workspace",
+      "valid": true,
+      "planId": "ff8efa2fb0e2d4d2a25503fcbe5d6c17e01f473ced309164b8c82ab7f5e0904d",
+      "alreadyApplied": [],
+      "pending": [
+        {
+          "id": "0001_initial",
+          "checksum": "23a53f5b622f1ac4e334ab702cdf759ecc165304d94ee8e5675fb753332acdad",
+          "classification": "additive",
+          "changes": [
+            {
+              "change": "additive",
+              "count": 2
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    }
+  ],
+  "tests": {
+    "passed": true,
+    "count": 1,
+    "files": [
+      {
+        "file": "create-and-read.operation.json",
+        "name": "create and read a private note",
+        "steps": 2
+      }
+    ]
+  },
+  "summary": {
+    "actors": 1,
+    "operations": 2,
+    "pendingMigrations": 1
+  },
+  "binding": {
+    "receiptVersion": 2,
+    "projectFingerprint": "4d8b0056f015aec46cf01217e310cfcbb980220bc2bf6a88eb9c71647b297d26",
+    "environment": "development",
+    "planIds": [
+      "ff8efa2fb0e2d4d2a25503fcbe5d6c17e01f473ced309164b8c82ab7f5e0904d"
+    ],
+    "sourceManifestFingerprint": "f14821e2d98a32fae78dd52993db3cb0f1686994527c56244643b0fa35f089cd"
+  }
+}

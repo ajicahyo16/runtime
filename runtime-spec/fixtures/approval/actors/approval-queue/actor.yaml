@@ -1,0 +1,33 @@
+version: lacify.dev/actor/v1
+name: ApprovalQueue
+description: Owns request review and approval state for one organizational queue.
+partitionBy: queueId
+storage: sqlite
+commands:
+  - SubmitRequest
+  - ApproveRequest
+  - RejectRequest
+stateMachines:
+  - name: RequestLifecycle
+    initial: Draft
+    states:
+      - Draft
+      - Pending
+      - Approved
+      - Rejected
+    transitions:
+      - command: SubmitRequest
+        from: Draft
+        to: Pending
+      - command: ApproveRequest
+        from: Pending
+        to: Approved
+      - command: RejectRequest
+        from: Pending
+        to: Rejected
+summaries:
+  - name: monthly_approval_outcomes
+    period: monthly
+    sourceTable: approval_requests
+secretRefs:
+  - APPROVAL_NOTIFICATION_KEY

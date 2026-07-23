@@ -1,0 +1,25 @@
+version: lacify.dev/operation/v1
+name: CreateProject
+kind: command
+sql: ./create-project.sql
+input:
+  projectId:
+    type: string
+    required: true
+  name:
+    type: string
+    required: true
+  description:
+    type: string
+    required: true
+result:
+  mode: one
+  fields:
+    id:
+      type: string
+    name:
+      type: string
+    description:
+      type: string
+    status:
+      type: string

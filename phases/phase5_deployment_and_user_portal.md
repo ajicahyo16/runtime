@@ -1,40 +1,53 @@
-# Phase 5: Deployment & Non-Technical User Portal
+# Phase 5: Web App Blueprint and Deployment Experience
 
-This phase outlines the final environment where end-users interact with the business systems (POS, ERP, CRM) without seeing any technical cloud configurations.
+## Status
 
-## 1. Dual-Mode Switcher: Developer vs. User
-At the top header, a clean pill-switch toggles between:
-- **Developer Deck**: Cloudflare status, database configurations, and the lifecycle visualizer.
-- **User Space**: The actual clean business application interface.
+**Complete for the v1 generated command application.** Domain-specific applications such as a polished POS remain project work, not Control Plane infrastructure.
 
----
+## Objective
 
-## 2. User Space UI Design (Non-Technical)
-The User Space consists of beautifully structured dashboards tailored for daily operations:
+Let a developer describe the web surface that consumes a Lacify runtime, compile it with an immutable release, and move that release through Development, Staging, and Production.
 
-### POS Dashboard (Point of Sale)
-- Large, touch-friendly product grid with glassmorphism hover animations.
-- Simple checkout drawer that shows progress as:
-  - *Processing Payment...* -> *Printing Receipt...* -> *Transaction Saved*.
+## Delivered
 
-### Inventory / Warehouse Manager
-- A visual representation of stock levels using gradient progress bars.
-- Simple, high-level alerts: *"Stock low on Espresso Beans (2kg left)"*.
+- [x] Web App Blueprint editor linked to project aggregates.
+- [x] Validation that a blueprint references existing aggregate contracts.
+- [x] Revisioned blueprint persistence.
+- [x] Generated React command-console artifact.
+- [x] Typed aggregate and command metadata embedded in the release.
+- [x] Development, Staging, and Production deployment actions.
+- [x] Release verification, approval, and environment status.
+- [x] Runtime URL and deep-health presentation.
+- [x] Actionable failure, retry, and rollback states.
 
-### Approval Workflows
-- A simple inbox where managers can swipe right to approve or left to reject pending purchase orders/requests.
-- Success confirmation displays a satisfying confetti burst animation.
+## Product boundary
 
----
+Lacify generates a safe starting application and runtime client contract. It does not automatically invent every domain workflow or visual screen required by a mature POS, ERP, CRM, or clinic product. Those applications remain normal projects built on the generated runtime.
 
-## 3. Simplified Deployment Orchestration
-- **Target Environment Selection**:
-  - Developers choose where to deploy using a quick-select: **Development**, **Staging**, or **Production**.
-  - Visual indicators reflect the state of each environment (e.g., active versions, sync status).
-- **Go Live Action**:
-  - When the developer clicks **"Go Live"** for a selected environment:
-    - The webapp bundles the Worker script and SQLite DO setup specifically configured for that environment.
-    - Deploys it directly to the developer's Cloudflare namespace using the environment prefix (e.g., `dev.lacify.workers.dev`, `staging.lacify.workers.dev`, or custom production domain).
-    - Generates separate public URLs and QR Codes for each active environment level.
-    - Includes a **"Promote to Staging"** and **"Promote to Production"** visual pipeline animation where code/schema changes migrate safely up the chain.
+## Deployment flow
 
+```text
+Contracts + Web App Blueprint
+  → deterministic compile
+  → verify immutable release
+  → deploy Development
+  → promote Staging
+  → approve governed Production change
+  → deploy and verify deep health
+```
+
+## Acceptance evidence
+
+- [x] A blueprint can be saved and included in a release.
+- [x] The generated React artifact calls only declared aggregate commands.
+- [x] An identical checksum is promoted rather than rebuilt per environment.
+- [x] Production requires verified release, reviewed change context, configuration revision, and authorization.
+
+## Superseded concepts
+
+- The early in-console “User Space” was replaced by a generated application artifact.
+- QR codes and bespoke POS screens are optional project features, not release-system requirements.
+
+## Next dependency
+
+Phase 6 moves compilation and schema persistence from prototype behavior to the server-side release compiler.

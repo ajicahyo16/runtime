@@ -1,0 +1,20 @@
+version: lacify.dev/operation/v1
+name: PlaceOrder
+kind: command
+sql: ./place-order.sql
+input:
+  orderId:
+    type: string
+    required: true
+  total:
+    type: integer
+    required: true
+result:
+  mode: one
+  fields:
+    id:
+      type: string
+    total:
+      type: integer
+    status:
+      type: string

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Layers, ArrowLeft, Play, Download, Plus, Trash2, Activity } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { Actor } from '@/components/ActorCard'
+import { validateContract } from '@/lib/contract-validation'
 
 interface BusinessObjectDesignerProps {
   actor: Actor
@@ -26,6 +27,7 @@ export function BusinessObjectDesigner({ actor, onClose, onDeploy, onSaveActor }
   const [simLogs, setSimLogs] = useState<string[]>([
     '> Select an Allowed Action above to customize and trigger execution flow.'
   ])
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Local state for objects, actions, states
   const [objects, setObjects] = useState<Array<{ name: string; fields?: string }>>(
@@ -53,7 +55,17 @@ export function BusinessObjectDesigner({ actor, onClose, onDeploy, onSaveActor }
       actions: newActions,
       states: newStates
     }
-    await onSaveActor(updated)
+    const validation = validateContract(updated)
+    if (!validation.valid) {
+      setSaveError(validation.issues[0].message)
+      return
+    }
+    try {
+      await onSaveActor(updated)
+      setSaveError(null)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'The contract could not be saved.')
+    }
   }
 
   const openEditor = (kind: 'object' | 'action' | 'state') => {
@@ -247,42 +259,38 @@ Requests wake up the DO, execute business validation, apply state transitions, a
 
   return (
     <section className="glass-card panel-object-designer workspace-panel object-workbench">
-      <div className="panel-header flex-wrap object-workbench__header">
+      <header className="object-workbench__header">
         <div className="object-workbench__title">
-          <span className="object-workbench__eyebrow">Business Object</span>
-          <div className="flex items-center gap-2">
-            <Layers className="panel-icon text-primary" />
-            <h2 className="text-xl font-bold">{aggregateName}</h2>
-          </div>
+          <span className="object-workbench__eyebrow">Aggregate definition</span>
+          <div className="object-workbench__heading"><span className="object-workbench__icon"><Layers className="size-5" /></span><h1>{aggregateName}</h1></div>
+          <p>Define the data boundary, allowed commands, and state transitions for this aggregate.</p>
         </div>
-        <div className="ml-auto flex gap-2">
+        <div className="object-workbench__actions">
           <Button variant="outline" size="sm" onClick={onClose}>
-            <ArrowLeft className="size-4" />
-            Back to Workspace
+            <ArrowLeft className="size-3.5" />
+            All aggregates
           </Button>
           <Button size="sm" onClick={onDeploy}>
-            <Play className="size-4" />
-            Compile & Deploy Dev
+            <Play className="size-3.5" />
+            View release checks
           </Button>
         </div>
-      </div>
-      <p className="panel-desc text-xs text-muted-foreground mb-4">
-        Define its fields, actions, and lifecycle. Runtime details are available below when you need them.
-      </p>
+      </header>
+      {saveError && <p className="contract-validation-error" role="alert">{saveError}</p>}
 
       <div className="object-workbench__summary" aria-label="Business object runtime summary">
-        <span><b>Partition key</b><code>{keyName}</code></span>
-        <span><b>Runtime</b>Durable Object</span>
-        <span><b>Storage</b>SQLite</span>
+        <div><span>Partition key</span><code>{keyName}</code></div>
+        <div><span>Runtime</span><strong>Durable Object</strong></div>
+        <div><span>Storage</span><strong>SQLite</strong></div>
       </div>
 
-      <div className="designer-grid object-workbench__grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="object-workbench__grid">
         {/* Objects list */}
-        <div className="designer-column object-workbench__card">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold m-0">Fields & related objects</h3>
+        <section className="object-workbench__card">
+          <div className="object-workbench__card-header">
+            <div><h2>Data objects</h2><p>Records owned by this aggregate</p></div>
             <Button size="xs" variant="outline" type="button" onClick={() => openEditor('object')}>
-              <Plus className="size-3" /> Add Object
+              <Plus className="size-3" /> Add
             </Button>
           </div>
           {editor === 'object' && (
@@ -292,12 +300,12 @@ Requests wake up the DO, execute business validation, apply state transitions, a
               <div><Button size="xs" type="submit">Add object</Button><Button size="xs" variant="ghost" type="button" onClick={() => setEditor(null)}>Cancel</Button></div>
             </form>
           )}
-          <div className="space-y-2">
+          <div className="object-workbench__items">
             {objects.map((obj, i) => (
-              <div key={i} className="flex items-center justify-between p-2 rounded bg-white/5 text-xs">
+              <div key={i} className="object-workbench__item">
                 <div>
-                  <span className="font-semibold">{obj.name}</span>
-                  {obj.fields && <span className="block text-[10px] text-muted-foreground">{obj.fields}</span>}
+                  <strong>{obj.name}</strong>
+                  {obj.fields && <span>{obj.fields}</span>}
                 </div>
                 <Button size="icon-xs" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => handleRemoveObject(i)}>
                   <Trash2 className="size-3" />
@@ -305,14 +313,14 @@ Requests wake up the DO, execute business validation, apply state transitions, a
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
         {/* Commands list */}
-        <div className="designer-column object-workbench__card">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold m-0">Business Commands</h3>
+        <section className="object-workbench__card">
+          <div className="object-workbench__card-header">
+            <div><h2>Commands</h2><p>Actions allowed for this boundary</p></div>
             <Button size="xs" variant="outline" type="button" onClick={() => openEditor('action')}>
-              <Plus className="size-3" /> Add Command
+              <Plus className="size-3" /> Add
             </Button>
           </div>
           {editor === 'action' && (
@@ -321,30 +329,28 @@ Requests wake up the DO, execute business validation, apply state transitions, a
               <div><Button size="xs" type="submit">Add command</Button><Button size="xs" variant="ghost" type="button" onClick={() => setEditor(null)}>Cancel</Button></div>
             </form>
           )}
-          <div className="space-y-2">
+          <div className="object-workbench__items">
             {actions.map((act, i) => (
               <div
                 key={i}
-                className={`flex items-center justify-between p-2 rounded cursor-pointer text-xs ${
-                  selectedAction === act ? 'bg-primary/20 border border-primary/40' : 'bg-white/5'
-                }`}
+                className={`object-workbench__item object-workbench__command ${selectedAction === act ? 'is-selected' : ''}`}
                 onClick={() => setSelectedAction(act)}
               >
-                <span className="font-mono">{act}</span>
+                <strong>{act}</strong>
                 <Button size="icon-xs" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={(e) => { e.stopPropagation(); handleRemoveAction(i); }}>
                   <Trash2 className="size-3" />
                 </Button>
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
         {/* State Machine list */}
-        <div className="designer-column object-workbench__card">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold m-0">Object State Machines</h3>
+        <section className="object-workbench__card">
+          <div className="object-workbench__card-header">
+            <div><h2>State machines</h2><p>Valid transitions for each record</p></div>
             <Button size="xs" variant="outline" type="button" onClick={() => openEditor('state')}>
-              <Plus className="size-3" /> Add State
+              <Plus className="size-3" /> Add
             </Button>
           </div>
           {editor === 'state' && (
@@ -354,86 +360,95 @@ Requests wake up the DO, execute business validation, apply state transitions, a
               <div><Button size="xs" type="submit">Add lifecycle</Button><Button size="xs" variant="ghost" type="button" onClick={() => setEditor(null)}>Cancel</Button></div>
             </form>
           )}
-          <div className="space-y-2">
+          <div className="object-workbench__items">
             {states.map((st, i) => (
-              <div key={i} className="p-2 rounded bg-white/5 text-xs relative">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-semibold text-primary">{st.obj}</span>
+              <div key={i} className="object-workbench__item object-workbench__state">
+                <div>
+                  <strong>{st.obj}</strong>
+                  <span>{(st.flow || []).join(' → ')}</span>
+                </div>
                   <Button size="icon-xs" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => handleRemoveState(i)}>
                     <Trash2 className="size-3" />
                   </Button>
-                </div>
-                <div className="text-[11px] text-muted-foreground">{(st.flow || []).join(' → ')}</div>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       </div>
 
       <details className="object-workbench__advanced">
-        <summary>Generated contract & API</summary>
-        <div className="compiler-tabs-container">
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          {(['contract', 'sdk', 'api', 'readme'] as TabType[]).map((tab) => (
-            <Button
-              key={tab}
-              size="xs"
-              variant={activeTab === tab ? 'default' : 'outline'}
-              onClick={() => setActiveTab(tab)}
-              className="capitalize"
-            >
-              {tab === 'contract' ? 'Runtime Contract' : tab === 'sdk' ? 'Generated SDK' : tab === 'api' ? 'Generated API' : 'Documentation'}
+        <summary>
+          <span>Generated contract & API</span>
+          <small>Review the files produced from this definition</small>
+        </summary>
+        <div className="object-workbench__generated">
+          <div className="object-workbench__advanced-header">
+            <div>
+              <span className="object-workbench__section-label">Output preview</span>
+              <p>Each file is regenerated when the aggregate changes.</p>
+            </div>
+            <Button size="xs" variant="outline" onClick={handleDownloadPackage} disabled={isDownloading}>
+              <Download className="size-3" />
+              {isDownloading ? 'Building package…' : 'Download package'}
             </Button>
-          ))}
-          <Button
-            size="xs"
-            variant="secondary"
-            className="ml-auto"
-            onClick={handleDownloadPackage}
-            disabled={isDownloading}
-          >
-            <Download className="size-3" />
-            {isDownloading ? 'Building ZIP...' : 'Download Deployable Package'}
-          </Button>
-        </div>
-
-        <div className="tab-content-box p-4 rounded-xl bg-black/50 border border-white/10 font-mono text-xs overflow-x-auto max-h-[250px]">
-          <pre className="m-0 text-emerald-400">
-            {activeTab === 'contract' && getYamlContract()}
-            {activeTab === 'sdk' && getSdkCode()}
-            {activeTab === 'api' && getApiDoc()}
-            {activeTab === 'readme' && getDocumentation()}
-          </pre>
-        </div>
+          </div>
+          <div className="object-workbench__tabs" role="tablist" aria-label="Generated files">
+            {(['contract', 'sdk', 'api', 'readme'] as TabType[]).map((tab) => (
+              <Button
+                key={tab}
+                size="xs"
+                variant={activeTab === tab ? 'default' : 'ghost'}
+                onClick={() => setActiveTab(tab)}
+                className="capitalize"
+              >
+                {tab === 'contract' ? 'Contract' : tab === 'sdk' ? 'SDK' : tab === 'api' ? 'API' : 'Docs'}
+              </Button>
+            ))}
+          </div>
+          <div className="object-workbench__code" aria-live="polite">
+            <pre>
+              {activeTab === 'contract' && getYamlContract()}
+              {activeTab === 'sdk' && getSdkCode()}
+              {activeTab === 'api' && getApiDoc()}
+              {activeTab === 'readme' && getDocumentation()}
+            </pre>
+          </div>
         </div>
       </details>
 
       <details className="object-workbench__advanced">
-        <summary>Test an action</summary>
-        <div className="visualizer-container">
-        <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
-          <div className="flex items-center gap-2">
-            <Activity className="size-4 text-amber-400" />
-            <h3 className="text-sm font-semibold m-0">Action simulator: <span className="text-primary">{selectedAction || actions[0] || 'CreateOrder'}</span></h3>
+        <summary>
+          <span>Test an action</span>
+          <small>Run a local lifecycle preview before release</small>
+        </summary>
+        <div className="object-workbench__simulator">
+          <div className="object-workbench__advanced-header">
+            <div className="object-workbench__simulator-title">
+              <Activity className="size-4" />
+              <div>
+                <span className="object-workbench__section-label">Action simulator</span>
+                <p>{selectedAction || actions[0] || 'CreateOrder'} · local preview only</p>
+              </div>
+            </div>
+            <div className="object-workbench__simulator-actions">
+              <label>
+                <span>Speed</span>
+                <select
+                  value={simSpeed}
+                  onChange={(e) => setSimSpeed(Number(e.target.value))}
+                >
+                  <option value={1200}>0.5×</option>
+                  <option value={700}>1×</option>
+                  <option value={350}>2×</option>
+                </select>
+              </label>
+              <Button size="xs" onClick={runSimulator} disabled={isSimulating}>
+                <Play className="size-3" /> {isSimulating ? 'Running…' : 'Run preview'}
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-muted-foreground">Speed:</label>
-            <select
-              value={simSpeed}
-              onChange={(e) => setSimSpeed(Number(e.target.value))}
-              className="bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-foreground"
-            >
-              <option value={1200}>0.5x Speed</option>
-              <option value={700}>1.0x Speed</option>
-              <option value={350}>2.0x Speed</option>
-            </select>
-            <Button size="xs" onClick={runSimulator} disabled={isSimulating}>
-              <Play className="size-3" /> Run Simulator
-            </Button>
-          </div>
-        </div>
 
-        <div className="pipeline-track flex items-center justify-between overflow-x-auto gap-2 p-3 bg-black/30 rounded-xl mb-4 border border-white/5">
+        <div className="object-workbench__pipeline" aria-label="Action execution stages">
           {['wake', 'validate', 'execute', 'persist', 'update-summary', 'respond', 'sleep'].map((step) => (
             <div
               key={step}
@@ -447,10 +462,10 @@ Requests wake up the DO, execute business validation, apply state transitions, a
           ))}
         </div>
 
-        <div className="visualizer-logs-box p-3 rounded-lg bg-black/40 border border-white/5 font-mono text-xs max-h-[120px] overflow-y-auto">
-          <div className="text-[10px] text-muted-foreground uppercase font-bold mb-1">Diagnostic Log</div>
+        <div className="object-workbench__logs">
+          <div>Diagnostic log</div>
           {simLogs.map((log, i) => (
-            <div key={i} className="text-slate-300">{log}</div>
+            <p key={i}>{log}</p>
           ))}
         </div>
         </div>

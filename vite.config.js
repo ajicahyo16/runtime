@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { dump as dumpYaml, load as loadYaml } from 'js-yaml';
+import { compileRuntimePackage } from './runtime-package-compiler.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const runtimeEnv = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), '');
@@ -114,6 +115,24 @@ function contractString(value, field, fallback = '') {
   return value.trim();
 }
 
+function assertRuntimeContract(contract) {
+  const identifier = /^[A-Za-z][A-Za-z0-9]*$/;
+  const duplicates = (values) => new Set(values.map((value) => value.toLowerCase())).size !== values.length;
+  if (!identifier.test(contract.aggregateType)) throw new Error('aggregateType must be a valid identifier.');
+  if (!identifier.test(contract.key)) throw new Error('key must be a valid identifier.');
+  const objectNames = contract.objects.map((object) => object.name);
+  if (objectNames.some((name) => !identifier.test(name)) || duplicates(objectNames)) throw new Error('Object names must be unique valid identifiers.');
+  if (!contract.actions.length) throw new Error('At least one action is required.');
+  if (contract.actions.some((action) => !identifier.test(action)) || duplicates(contract.actions)) throw new Error('Action names must be unique valid identifiers.');
+  const stateObjects = contract.states.map((state) => state.obj);
+  if (duplicates(stateObjects)) throw new Error('Each object can have only one state machine.');
+  for (const state of contract.states) {
+    if (!objectNames.includes(state.obj)) throw new Error(`State machine "${state.obj}" must reference an existing object.`);
+    if (state.flow.length < 2) throw new Error(`State machine "${state.obj}" needs at least two states.`);
+    if (state.flow.some((name) => !identifier.test(name)) || duplicates(state.flow)) throw new Error(`States for "${state.obj}" must be unique valid identifiers.`);
+  }
+}
+
 /** Normalize legacy contracts and reject malformed writes before they reach disk. */
 function normalizeContract(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Business object contract must be an object.');
@@ -140,7 +159,9 @@ function normalizeContract(raw) {
       });
   const status = ['active', 'dormant', 'error'].includes(raw.status) ? raw.status : 'dormant';
   const queries = Number.isFinite(Number(raw.queries)) && Number(raw.queries) >= 0 ? Number(raw.queries) : 0;
-  return { id, name, aggregateType, key, size: typeof raw.size === 'string' && raw.size.trim() ? raw.size.trim() : '1.0 MB', queries, status, objects, actions, states };
+  const contract = { id, name, aggregateType, key, size: typeof raw.size === 'string' && raw.size.trim() ? raw.size.trim() : '1.0 MB', queries, status, objects, actions, states };
+  assertRuntimeContract(contract);
+  return contract;
 }
 
 export default defineConfig({
@@ -189,6 +210,12 @@ export default defineConfig({
           res.setHeader('Set-Cookie', `${sessionCookieName}=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL_SECONDS}; Priority=High${secure}`);
         };
         server.middlewares.use(async (req, res, next) => {
+        // The local YAML middleware is retained only for explicit legacy work.
+        // Normal development uses the Control API proxy, including Uplink, so
+        // one session cookie authorizes every authoring and release request.
+        if (process.env.LACIFY_USE_LEGACY_API !== '1') {
+          return next();
+        }
         const parsedUrl = new URL(req.url, 'http://localhost');
         const url = parsedUrl.pathname;
         console.log('MIDDLEWARE REQUEST:', url, req.method);
@@ -401,6 +428,49 @@ export default defineConfig({
         } 
         
         else if (url === '/api/compile-package' && req.method === 'POST') {
+          // Local Phase 6 delivery: compile the same durable-object lifecycle
+          // runtime that the UI describes, then return it as a portable ZIP.
+          // This stays a development-only endpoint; the production Control API
+          // stores immutable release artifacts instead of writing to disk.
+          let requestBody = '';
+          req.on('data', chunk => { requestBody += chunk.toString(); });
+          req.on('end', () => {
+            const scratchDir = path.join(process.cwd(), 'scratch');
+            let tempDir;
+            let zipFile;
+            try {
+              const actors = JSON.parse(requestBody).map(normalizeContract);
+              if (!actors.length) throw new Error('Add at least one aggregate before compiling a package.');
+              fs.mkdirSync(scratchDir, { recursive: true });
+              tempDir = fs.mkdtempSync(path.join(scratchDir, 'lacify-package-'));
+              zipFile = path.join(scratchDir, `${path.basename(tempDir)}.zip`);
+              for (const [file, content] of Object.entries(compileRuntimePackage(actors))) {
+                fs.writeFileSync(path.join(tempDir, file), content, 'utf8');
+              }
+              exec(`cd "${tempDir}" && zip -q -r "${zipFile}" .`, (zipErr) => {
+                if (zipErr) {
+                  res.writeHead(500, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ success: false, message: 'Compression failed.' }));
+                  return;
+                }
+                const stat = fs.statSync(zipFile);
+                res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="lacify-runtime-package.zip"', 'Content-Length': stat.size });
+                const readStream = fs.createReadStream(zipFile);
+                readStream.pipe(res);
+                readStream.on('close', () => {
+                  fs.rmSync(tempDir, { recursive: true, force: true });
+                  fs.rmSync(zipFile, { force: true });
+                });
+              });
+            } catch (error) {
+              if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
+              if (zipFile) fs.rmSync(zipFile, { force: true });
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, message: error instanceof Error ? error.message : 'Package compilation failed.' }));
+            }
+          });
+          return;
+
           let body = '';
           req.on('data', chunk => { body += chunk.toString(); });
           req.on('end', async () => {
@@ -623,7 +693,15 @@ export default defineConfig({
   ],
   server: {
     port: 5173,
-    host: true
+    host: true,
+    // The production UI calls the deployed Control API directly. In local
+    // development, preserve the same /api contract through this proxy.
+    proxy: {
+      '/api': {
+        target: process.env.LACIFY_CONTROL_API_URL || 'http://127.0.0.1:8787',
+        changeOrigin: true,
+      },
+    },
   },
   resolve: {
     alias: {

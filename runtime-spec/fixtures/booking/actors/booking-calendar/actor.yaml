@@ -1,0 +1,27 @@
+version: lacify.dev/actor/v1
+name: BookingCalendar
+description: Owns availability and bookings for one schedulable calendar.
+partitionBy: calendarId
+storage: sqlite
+commands:
+  - CreateBooking
+  - ConfirmBooking
+  - CancelBooking
+stateMachines:
+  - name: BookingLifecycle
+    initial: Pending
+    states:
+      - Pending
+      - Confirmed
+      - Cancelled
+    transitions:
+      - command: ConfirmBooking
+        from: Pending
+        to: Confirmed
+      - command: CancelBooking
+        from: Pending
+        to: Cancelled
+summaries:
+  - name: monthly_bookings
+    period: monthly
+    sourceTable: bookings

@@ -1,34 +1,44 @@
-# Phase 2: Cloudflare Developer Credentials & Integration
+# Phase 2: Secure Cloudflare Uplink
 
-This phase specifies how developers link their Cloudflare account to the webapp securely, showing a beautiful non-technical connection flow instead of raw JSON API errors.
+## Status
 
-## 1. Credentials Input Interface
-A sleek frosted card containing:
-- **Cloudflare Account ID**: A text input with inline regex validation.
-- **Cloudflare API Token**: A password-masked input with a "Reveal" icon.
-  - Requires permissions for: `Account.Durable Objects`, `Account.Workers Scripts`, `Account.KV`, `Account.D1`.
-- **Environment Context Settings**:
-  - Ability to specify unique resource prefixes or separate configurations for **Dev**, **Staging**, and **Production** (e.g. `my-app-dev`, `my-app-staging`, `my-app-prod`) to guarantee strict data and service isolation.
+**Complete.** The Control Plane can connect to the owner's Cloudflare account and deploy isolated runtime resources.
 
+## Objective
 
----
+Provide a safe connection between Lacify and a personal Cloudflare account while keeping provider credentials out of browser persistence, URLs, logs, and generated bundles.
 
-## 2. The Connection Animation Sequence
-When the user clicks **"Establish Secure Uplink"**:
-1. The connection line between the "WebApp" card and the "Cloudflare Cloud" icon lights up with a flowing neon energy particle (using CSS path animations).
-2. The system makes asynchronous check requests:
-   - **Step 1: Authenticating Token...** (Status: Pulsing Amber dot)
-   - **Step 2: Checking Durable Object capabilities...** (Status: Pulsing Amber dot)
-   - **Step 3: Checking SQLite (D1) databases...** (Status: Pulsing Amber dot)
-3. If successful:
-   - Connection line glows solid **Vibrant Emerald**.
-   - A success message reads: *"Lacify Engine Linked Successfully!"*
-4. If failed:
-   - The line turns **Crimson Red** with a slight shake animation.
-   - The system displays a clear, friendly suggestion: *"Please verify your API Token permissions. Make sure Durable Objects write access is granted."*
+## Delivered
 
----
+- [x] Account ID and scoped API-token connection flow.
+- [x] Server-side Cloudflare credential verification.
+- [x] Encrypted Uplink token envelopes stored by the Control Plane.
+- [x] Opaque, expiring, revocable application sessions.
+- [x] Connected/disconnected Uplink state in the console.
+- [x] Separate Development, Staging, and Production resource naming.
+- [x] Uplink replacement and revocation workflows.
+- [x] Auditing for connection, disconnection, authentication, and credential rotation.
+- [x] Redaction of authorization headers, cookies, tokens, and encryption material.
 
-## 3. Storage & Encryption (Client-Side)
-- Credentials are saved in `localStorage` or `sessionStorage` encrypted with a user-defined password, or passed directly to the runtime backend.
-- Option to "Clear Workspace Credentials" which cleans up local memory with a fade-out animation.
+## Security rules
+
+- Credentials are never stored in `localStorage` or `sessionStorage`.
+- Browser forms submit credentials once over HTTPS and clear controlled state.
+- Provider tokens are encrypted at rest; only the deployed Control API can decrypt them.
+- Application identity, workspace membership, and Cloudflare Uplink identity are separate concerns.
+- A valid Cloudflare account does not automatically grant access to an existing workspace.
+
+## Acceptance evidence
+
+- [x] The production console reports the linked Cloudflare account without returning its token.
+- [x] Direct state-changing requests require an authenticated session and CSRF context.
+- [x] Disconnecting Uplink prevents new deployments without stopping an already-running runtime.
+- [x] No credential is embedded in the production JavaScript bundle or support diagnostics.
+
+## Superseded concepts
+
+The original client-side encrypted credential store was rejected. Production credentials are held only by the server-side Control Plane.
+
+## Next dependency
+
+Phase 3 compiles Business Aggregate definitions into Durable Object and SQLite runtime artifacts.

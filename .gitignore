@@ -7,3 +7,7 @@ tsconfig.tsbuildinfo
 .wrangler/
 .dev.vars
 .dev.vars.*
+**/.lacify/development/
+**/.lacify/backups/
+**/.lacify/recovery/
+*.lacify.enc

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "installations": [
+    {
+      "module": "workspace-tasks",
+      "moduleFingerprint": "f812229ead733f6bdc5270dec01c60bbc584f59c090fd8c21d6e1d54a56bcaa8",
+      "actor": "Workspace",
+      "projectFingerprintBefore": "ed907f3115c4794c63b042e5b4280d7bda1d50d7b75eb74264caf8c63b0e8a30",
+      "projectFingerprintAfter": "95f6a6ae697cf8495d6bdd6f5bae9fe0c8793dc3f28ab9bce3b1d7e6f68957ee",
+      "installedAt": "2026-07-23T16:09:21.056Z"
+    },
+    {
+      "module": "workspace-tasks",
+      "moduleVersion": "1.1.0",
+      "moduleFingerprint": "404776ac7667ed51f3badd82cf2dd387058a69a8317b69e2a59514bb5e0f7c5d",
+      "actor": "Workspace",
+      "upgradedFrom": "1.0.0",
+      "projectFingerprintBefore": "95f6a6ae697cf8495d6bdd6f5bae9fe0c8793dc3f28ab9bce3b1d7e6f68957ee",
+      "projectFingerprintAfter": "46a291eea7b226c471ff2246c9e73785d37555d8f070b12c026c6cec088115ed",
+      "installedAt": "2026-07-23T16:19:34.481Z"
+    }
+  ]
+}

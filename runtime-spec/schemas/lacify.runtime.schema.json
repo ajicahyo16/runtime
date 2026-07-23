@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lacify.dev/schemas/lacify.runtime.schema.json",
+  "title": "Lacify Runtime Project",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "project", "runtime", "actors"],
+  "properties": {
+    "version": { "const": "lacify.dev/v1" },
+    "project": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-_]{0,62}$"
+    },
+    "runtime": { "const": "request-response" },
+    "actors": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^\\./actors/[a-z0-9][a-z0-9-_]{0,62}/actor\\.yaml$"
+      }
+    }
+  }
+}

@@ -1,5 +1,4 @@
 import { Trash2 } from 'lucide-react'
-import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -24,8 +23,8 @@ interface ActorCardProps {
 
 export function ActorCard({ actor, onClick, onDelete }: ActorCardProps) {
   return (
-    <Card
-      className="actor-card relative cursor-pointer transition-all flex flex-col justify-between h-full"
+    <article
+      className="actor-card"
       onClick={onClick}
     >
       <Button
@@ -40,16 +39,15 @@ export function ActorCard({ actor, onClick, onDelete }: ActorCardProps) {
         <Trash2 className="size-4" />
       </Button>
 
-      <div className="actor-info flex-1 pr-7">
-        <h4 className="text-base font-semibold truncate text-foreground">{actor.name}</h4>
+      <div className="actor-info">
+        <div><p className="actor-card__type">{actor.aggregateType || 'Business aggregate'}</p><h4>{actor.name}</h4></div>
         <div className="actor-meta flex flex-col gap-1 text-xs text-muted-foreground mt-2">
-          <span>Business object · Durable Object / SQLite</span>
-          <span>Size: {actor.size}</span>
-          <span>Queries: {actor.queries.toLocaleString()}</span>
+          <span>{actor.aggregateType || 'Business aggregate'} · partition key: <code>{actor.key || 'id'}</code></span>
+          <span>{actor.objects?.length || 0} objects · {actor.actions?.length || 0} commands · {actor.states?.length || 0} state machines</span>
         </div>
       </div>
 
-      <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/5">
+      <div className="actor-card__footer">
         <span
           className={cn(
             'actor-badge inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-medium uppercase',
@@ -63,6 +61,6 @@ export function ActorCard({ actor, onClick, onDelete }: ActorCardProps) {
           {actor.status}
         </span>
       </div>
-    </Card>
+    </article>
   )
 }

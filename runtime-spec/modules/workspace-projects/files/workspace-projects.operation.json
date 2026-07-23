@@ -1,0 +1,32 @@
+{
+  "name": "workspace projects module",
+  "actor": "Workspace",
+  "partition": "module-workspace",
+  "steps": [
+    {
+      "operation": "CreateProject",
+      "idempotencyKey": "module-project-1",
+      "input": {
+        "projectId": "module-project",
+        "name": "Module project",
+        "description": "Created by the reusable module"
+      },
+      "expectData": {
+        "id": "module-project",
+        "name": "Module project",
+        "description": "Created by the reusable module",
+        "status": "Active"
+      }
+    },
+    {
+      "operation": "GetProject",
+      "input": {"projectId": "module-project"},
+      "expectData": {
+        "id": "module-project",
+        "name": "Module project",
+        "description": "Created by the reusable module",
+        "status": "Active"
+      }
+    }
+  ]
+}

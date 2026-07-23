@@ -1,0 +1,19 @@
+version: lacify.dev/operation/v1
+name: ListProjects
+kind: query
+sql: ./list-projects.sql
+input: {}
+result:
+  mode: many
+  maxRows: 100
+  fields:
+    id:
+      type: string
+    name:
+      type: string
+    status:
+      type: string
+  pagination:
+    cursorField: id
+    defaultPageSize: 25
+    maxPageSize: 100

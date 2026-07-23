@@ -1,0 +1,17 @@
+version: lacify.dev/operation/v1
+name: GetNote
+kind: query
+sql: ./get-note.sql
+input:
+  noteId:
+    type: string
+    required: true
+result:
+  mode: optional
+  fields:
+    id:
+      type: string
+    title:
+      type: string
+    body:
+      type: string

@@ -1,0 +1,32 @@
+{
+  "name": "create and complete a delivery task",
+  "actor": "DeliveryWorkspace",
+  "partition": "delivery-acceptance",
+  "steps": [
+    {
+      "operation": "CreateTask",
+      "idempotencyKey": "delivery-task-1",
+      "input": {
+        "taskId": "prepare-release",
+        "title": "Prepare delivery release"
+      },
+      "expectData": {
+        "id": "prepare-release",
+        "title": "Prepare delivery release",
+        "completed": 0
+      }
+    },
+    {
+      "operation": "CompleteTask",
+      "idempotencyKey": "delivery-task-2",
+      "input": {
+        "taskId": "prepare-release"
+      },
+      "expectData": {
+        "id": "prepare-release",
+        "title": "Prepare delivery release",
+        "completed": 1
+      }
+    }
+  ]
+}

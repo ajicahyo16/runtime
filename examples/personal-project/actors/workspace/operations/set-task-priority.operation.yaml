@@ -1,0 +1,20 @@
+version: lacify.dev/operation/v1
+name: SetTaskPriority
+kind: command
+sql: ./set-task-priority.sql
+input:
+  taskId:
+    type: string
+    required: true
+  priority:
+    type: integer
+    required: true
+result:
+  mode: one
+  fields:
+    id:
+      type: string
+    title:
+      type: string
+    priority:
+      type: integer

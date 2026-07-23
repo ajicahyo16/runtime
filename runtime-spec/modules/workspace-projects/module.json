@@ -1,0 +1,29 @@
+{
+  "version": "lacify.dev/module/v1",
+  "moduleVersion": "1.0.0",
+  "name": "workspace-projects",
+  "kind": "actor-extension",
+  "description": "Adds project records and typed project operations to a Workspace Actor.",
+  "target": {
+    "partitionBy": "workspaceId",
+    "storage": "sqlite"
+  },
+  "actorPatch": {
+    "commands": ["CreateProject"],
+    "operations": [
+      "./operations/create-project.operation.yaml",
+      "./operations/get-project.operation.yaml",
+      "./operations/list-projects.operation.yaml"
+    ]
+  },
+  "files": [
+    {"source": "files/0100_workspace_projects.sql", "target": "actor/migrations/0100_workspace_projects.sql"},
+    {"source": "files/create-project.operation.yaml", "target": "actor/operations/create-project.operation.yaml"},
+    {"source": "files/create-project.sql", "target": "actor/operations/create-project.sql"},
+    {"source": "files/get-project.operation.yaml", "target": "actor/operations/get-project.operation.yaml"},
+    {"source": "files/get-project.sql", "target": "actor/operations/get-project.sql"},
+    {"source": "files/list-projects.operation.yaml", "target": "actor/operations/list-projects.operation.yaml"},
+    {"source": "files/list-projects.sql", "target": "actor/operations/list-projects.sql"},
+    {"source": "files/workspace-projects.operation.json", "target": "project/tests/workspace-projects.operation.json"}
+  ]
+}

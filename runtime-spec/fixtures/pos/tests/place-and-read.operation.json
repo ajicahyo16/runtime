@@ -1,0 +1,31 @@
+{
+  "name": "place and read one order",
+  "actor": "Outlet",
+  "partition": "outlet-test",
+  "steps": [
+    {
+      "operation": "PlaceOrder",
+      "idempotencyKey": "fixture-order-1",
+      "input": {
+        "orderId": "order-1",
+        "total": 1250
+      },
+      "expectData": {
+        "id": "order-1",
+        "total": 1250,
+        "status": "Confirmed"
+      }
+    },
+    {
+      "operation": "GetOrder",
+      "input": {
+        "orderId": "order-1"
+      },
+      "expectData": {
+        "id": "order-1",
+        "total": 1250,
+        "status": "Confirmed"
+      }
+    }
+  ]
+}

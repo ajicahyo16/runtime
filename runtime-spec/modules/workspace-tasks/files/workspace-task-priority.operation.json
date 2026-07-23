@@ -1,0 +1,19 @@
+{
+  "name": "workspace task priority module upgrade",
+  "actor": "Workspace",
+  "partition": "module-workspace",
+  "steps": [
+    {
+      "operation": "CreateTask",
+      "idempotencyKey": "module-priority-task-1",
+      "input": {"taskId": "priority-task", "title": "Priority task"},
+      "expectData": {"id": "priority-task", "title": "Priority task", "completed": 0}
+    },
+    {
+      "operation": "SetTaskPriority",
+      "idempotencyKey": "module-priority-task-2",
+      "input": {"taskId": "priority-task", "priority": 3},
+      "expectData": {"id": "priority-task", "title": "Priority task", "priority": 3}
+    }
+  ]
+}

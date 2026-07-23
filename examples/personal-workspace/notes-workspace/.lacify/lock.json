@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "authoring": {
+    "baseFingerprint": "e548d1b7f43ce80e28c5764af16b2542bf9b3c3eb2f83ae69029ad1da0241e98",
+    "controlPlaneFingerprint": "e548d1b7f43ce80e28c5764af16b2542bf9b3c3eb2f83ae69029ad1da0241e98"
+  },
+  "projectFingerprint": "e548d1b7f43ce80e28c5764af16b2542bf9b3c3eb2f83ae69029ad1da0241e98",
+  "baseRevision": "revision_3edd3994-d1d3-494e-a68b-ab8b52e65da5",
+  "environments": {
+    "development": {
+      "revision": "revision_3edd3994-d1d3-494e-a68b-ab8b52e65da5",
+      "fingerprint": "e548d1b7f43ce80e28c5764af16b2542bf9b3c3eb2f83ae69029ad1da0241e98",
+      "appliedAt": "2026-07-23T17:15:42.450Z"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+version: lacify.dev/operation/v1
+name: CreateTask
+kind: command
+sql: ./create-task.sql
+input:
+  taskId:
+    type: string
+    required: true
+  title:
+    type: string
+    required: true
+result:
+  mode: one
+  fields:
+    id:
+      type: string
+    title:
+      type: string
+    completed:
+      type: integer

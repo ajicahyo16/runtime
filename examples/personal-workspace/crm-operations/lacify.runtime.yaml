@@ -1,0 +1,5 @@
+version: lacify.dev/v1
+project: crm-operations
+runtime: request-response
+actors:
+  - ./actors/workspace/actor.yaml

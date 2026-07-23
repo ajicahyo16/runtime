@@ -1,0 +1,21 @@
+version: lacify.dev/operation/v1
+name: CreateNote
+kind: command
+sql: ./create-note.sql
+input:
+  noteId:
+    type: string
+    required: true
+  title:
+    type: string
+    required: true
+  body:
+    type: string
+    required: true
+result:
+  mode: one
+  fields:
+    id:
+      type: string
+    title:
+      type: string

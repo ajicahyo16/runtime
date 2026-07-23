@@ -1,29 +1,53 @@
-# Phase 6: Real Runtime Compiler Backend & Local Schema Persistence
+# Phase 6: Deterministic Runtime Compiler
 
-This phase transitions Lacify from an interactive visual simulator to a functional compiler backend. It introduces local schema persistence in YAML files and builds a real-time code generator in Node.js/Vite that compiles business aggregates into deployable Cloudflare Worker ZIP packages (Durable Objects + SQLite).
+## Status
 
-## Architectural Strategy
+**Complete.** The production Control Plane compiles revisioned project contracts into immutable Cloudflare runtime releases.
 
-### 1. Local Contract Storage (YAML)
-All configurations defined in the UI will persist locally inside the project workspace directory:
-`/contracts/<aggregate-type-id>.yaml`
+## Objective
 
-This guarantees schema definitions are version-controlled and not lost on browser reload.
+Replace the visual-only prototype with a deterministic compiler whose inputs, generated artifacts, checksum, and deployment identity can be verified and audited.
 
-### 2. Code Generation Engine
-The backend will compile the YAML contract into code templates:
-- `index.ts`: The main Durable Object implementation utilizing Cloudflare's new SQL API (`state.storage.sql`) to execute sqlite statements dynamically.
-- `schema.sql`: Automated SQL DDL script containing the table structures (`CREATE TABLE`) mapped from the designer's Business Objects properties.
-- `wrangler.json`: Configurations defining Durable Object bindings, migration details, and D1/SQLite mappings.
-- `lacify-client.ts`: The compiled TypeScript SDK library containing strongly-typed command methods (e.g. `payOrder`) mapping directly to endpoint routing patterns.
+## Delivered
 
-### 3. Deployable Zip Archive Package
-A **"Download Deployable Package"** action is triggered, compiling the assets and returning a ZIP bundle. Developers can extract this and run `npx wrangler deploy` to go live instantly.
+- [x] Revisioned project and aggregate contract storage in the Control Plane.
+- [x] Deterministic compiler for Worker, Durable Object, SQLite, manifest, and web application artifacts.
+- [x] Content-derived release checksum and immutable release ID.
+- [x] Generated Worker module with stateless routing.
+- [x] Generated Durable Object classes and SQLite initialization.
+- [x] Generated `schema.sql` and Wrangler metadata.
+- [x] Generated command routes and client application metadata.
+- [x] Release validation and artifact inspection.
+- [x] Local compiler entry point for development and automated tests.
 
----
+## Canonical production model
 
-## Deliverables & API Endpoints
+The production source of truth is the revisioned Control Plane contract and release artifact stored in D1. The early `/contracts/*.yaml` and Vite middleware approach remains useful as historical prototype context, but is not the production persistence boundary.
 
-- **[NEW] Endpoint: `GET /api/load-contracts`**: Reads `/contracts/*.yaml` files and returns configurations to populate the grid UI on console load.
-- **[NEW] Endpoint: `POST /api/save-contract`**: Receives an aggregate layout payload from the UI designer and writes it to `/contracts/<id>.yaml`.
-- **[NEW] Endpoint: `POST /api/compile-package`**: Compiles active YAML schemas and returns a downloadable ZIP archive containing the deployable worker.
+Phase 10 will introduce a new, deliberate file-first contract:
+
+```text
+lacify.runtime.yaml
+actors/<actor>/migrations/*.sql
+```
+
+Those files will be synchronized through a CLI and MCP rather than writing directly through Vite middleware.
+
+## Compiler guarantees
+
+- Equivalent normalized inputs produce the same checksum.
+- A release is never rebuilt while moving between environments.
+- Generated code has bounded routes, commands, payloads, and telemetry.
+- Business state belongs to Durable Object SQLite.
+- Provider credentials and Control Plane secrets never enter release artifacts.
+
+## Acceptance evidence
+
+- [x] The `lacify-pos` project has multiple verified immutable releases.
+- [x] Generated releases deploy successfully to real Workers.
+- [x] Worker, Durable Object, and SQLite deep health passes in Production.
+- [x] Compiler and telemetry behavior is covered by automated tests.
+
+## Next dependency
+
+Phase 7 deploys compiled releases through the production Control Plane.

@@ -1,0 +1,34 @@
+{
+  "name": "create and read a personal project",
+  "actor": "Workspace",
+  "partition": "personal-workspace",
+  "steps": [
+    {
+      "operation": "CreateProject",
+      "idempotencyKey": "personal-project-1",
+      "input": {
+        "projectId": "lacify-runtime",
+        "name": "Lacify Runtime",
+        "description": "Personal database-as-code platform"
+      },
+      "expectData": {
+        "id": "lacify-runtime",
+        "name": "Lacify Runtime",
+        "description": "Personal database-as-code platform",
+        "status": "Active"
+      }
+    },
+    {
+      "operation": "GetProject",
+      "input": {
+        "projectId": "lacify-runtime"
+      },
+      "expectData": {
+        "id": "lacify-runtime",
+        "name": "Lacify Runtime",
+        "description": "Personal database-as-code platform",
+        "status": "Active"
+      }
+    }
+  ]
+}

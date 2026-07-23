@@ -1,0 +1,5 @@
+version: lacify.dev/v1
+project: phase10-inventory
+runtime: request-response
+actors:
+  - ./actors/warehouse/actor.yaml

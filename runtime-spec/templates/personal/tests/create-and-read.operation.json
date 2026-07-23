@@ -1,0 +1,31 @@
+{
+  "name": "create and read a private note",
+  "actor": "Workspace",
+  "partition": "personal",
+  "steps": [
+    {
+      "operation": "CreateNote",
+      "idempotencyKey": "personal-note-1",
+      "input": {
+        "noteId": "first-note",
+        "title": "First note",
+        "body": "Created from the personal template"
+      },
+      "expectData": {
+        "id": "first-note",
+        "title": "First note"
+      }
+    },
+    {
+      "operation": "GetNote",
+      "input": {
+        "noteId": "first-note"
+      },
+      "expectData": {
+        "id": "first-note",
+        "title": "First note",
+        "body": "Created from the personal template"
+      }
+    }
+  ]
+}

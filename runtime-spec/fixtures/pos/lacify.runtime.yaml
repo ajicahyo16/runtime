@@ -1,0 +1,5 @@
+version: lacify.dev/v1
+project: phase10-pos
+runtime: request-response
+actors:
+  - ./actors/outlet/actor.yaml

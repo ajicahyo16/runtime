@@ -1,7 +1,7 @@
-import { Server, BarChart3, Circle, Play, Cloud, Plus, Rocket } from 'lucide-react'
+import { Server, BarChart3, Circle, Play, Cloud, Plus, Rocket, Globe2, KeyRound, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-type Mode = 'builder' | 'monitor' | 'deploy' | 'universe' | 'simulate'
+type Mode = 'builder' | 'webapp' | 'monitor' | 'deploy' | 'universe' | 'simulate' | 'access' | 'settings'
 
 interface AppSidebarProps {
   activeMode: Mode
@@ -15,26 +15,21 @@ interface AppSidebarProps {
   accountName?: string
 }
 
-const navItems: { mode: Mode; label: string; icon: React.ReactNode }[] = [
-  { mode: 'builder', label: 'Build', icon: <Server className="size-4" /> },
-  { mode: 'monitor', label: 'Monitor', icon: <BarChart3 className="size-4" /> },
-  { mode: 'deploy', label: 'Deploy', icon: <Rocket className="size-4" /> },
-  { mode: 'universe', label: 'Graph', icon: <Circle className="size-4" /> },
-  { mode: 'simulate', label: 'Simulate', icon: <Play className="size-4" /> },
+const navGroups: Array<{ label: string; items: Array<{ mode: Mode; label: string; icon: React.ReactNode }> }> = [
+  { label: 'Design', items: [{ mode: 'builder', label: 'Architecture', icon: <Server className="size-4" /> }, { mode: 'webapp', label: 'Web app', icon: <Globe2 className="size-4" /> }, { mode: 'simulate', label: 'Test lifecycle', icon: <Play className="size-4" /> }] },
+  { label: 'Operate', items: [{ mode: 'monitor', label: 'Observability', icon: <BarChart3 className="size-4" /> }, { mode: 'deploy', label: 'Releases', icon: <Rocket className="size-4" /> }, { mode: 'access', label: 'Runtime access', icon: <KeyRound className="size-4" /> }, { mode: 'universe', label: 'Topology', icon: <Circle className="size-4" /> }, { mode: 'settings', label: 'Workspace', icon: <Settings className="size-4" /> }] },
 ]
 
 export function AppSidebar({ activeMode, onModeChange, isConnected, onUplinkClick, projects, activeProject, onProjectChange, onCreateProject, accountName }: AppSidebarProps) {
   return (
     <aside className="app-sidebar">
-      {/* Logo */}
       <div className="sidebar-logo">
         <div className="logo-orb" />
         <span className="logo-text">
-          Lacify <span className="accent-text">Console</span>
+          Lacify
         </span>
       </div>
 
-      {/* Workspace context */}
       <div className="sidebar-context">
         <div className="context-workspace">
           <span className="context-label">Workspace</span>
@@ -49,24 +44,15 @@ export function AppSidebar({ activeMode, onModeChange, isConnected, onUplinkClic
         </div>
       </div>
 
-      {/* Navigation */}
       <nav className="sidebar-nav">
-        <div className="sidebar-label">Navigation</div>
-        {navItems.map(({ mode, label, icon }) => (
-          <button
-            key={mode}
-            className={cn('nav-link mode-btn', activeMode === mode && 'active')}
-            onClick={() => onModeChange(mode)}
-          >
-            {icon}
-            <span>{label}</span>
-          </button>
-        ))}
+        {navGroups.map((group) => <div className="sidebar-nav__group" key={group.label}>
+          <div className="sidebar-label">{group.label}</div>
+          {group.items.map(({ mode, label, icon }) => <button key={mode} className={cn('nav-link mode-btn', activeMode === mode && 'active')} onClick={() => onModeChange(mode)}>{icon}<span>{label}</span></button>)}
+        </div>)}
       </nav>
 
       <div className="sidebar-spacer" />
 
-      {/* Uplink */}
       <div className="sidebar-uplink">
         <button
           className="uplink-btn"

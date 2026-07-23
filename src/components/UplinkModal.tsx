@@ -1,15 +1,25 @@
 import React, { useState, useEffect } from 'react'
-import { Cloud, Eye, EyeOff, X } from 'lucide-react'
+import { Cloud, Eye, EyeOff, Laptop, LogOut, RefreshCw, ShieldCheck, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface UplinkModalProps {
   isOpen: boolean
   onClose: () => void
   onConnectionSuccess: (isConnected: boolean, accountName?: string) => void
+  authenticatedUser: { id: string; displayName: string; provider: string } | null
+  onAuthenticationChange: (user: { id: string; displayName: string; provider: string } | null) => void
   currentEnv: string
 }
 
-export function UplinkModal({ isOpen, onClose, onConnectionSuccess, currentEnv }: UplinkModalProps) {
+interface ActiveSession {
+  id: string
+  expires_at: number
+  created_at: number
+  last_seen_at: number
+  current: number
+}
+
+export function UplinkModal({ isOpen, onClose, onConnectionSuccess, authenticatedUser, onAuthenticationChange, currentEnv }: UplinkModalProps) {
   const [accountId, setAccountId] = useState('')
   const [apiToken, setApiToken] = useState('')
   const [showToken, setShowToken] = useState(false)
@@ -18,6 +28,8 @@ export function UplinkModal({ isOpen, onClose, onConnectionSuccess, currentEnv }
   const [statusColor, setStatusColor] = useState('#64748b')
   const [isConnected, setIsConnected] = useState(false)
   const [isAnimating, setIsAnimating] = useState(false)
+  const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([])
+  const [securityMessage, setSecurityMessage] = useState('')
 
   useEffect(() => {
     if (isOpen) {
@@ -39,8 +51,14 @@ export function UplinkModal({ isOpen, onClose, onConnectionSuccess, currentEnv }
           setStatusColor('#10b981')
         })
         .catch(() => undefined)
+      if (authenticatedUser) {
+        fetch('/api/auth/sessions')
+          .then((response) => response.ok ? response.json() : null)
+          .then((data) => setActiveSessions(Array.isArray(data?.sessions) ? data.sessions : []))
+          .catch(() => undefined)
+      }
     }
-  }, [isOpen, currentEnv])
+  }, [isOpen, currentEnv, authenticatedUser])
 
   if (!isOpen) return null
 
@@ -85,7 +103,7 @@ export function UplinkModal({ isOpen, onClose, onConnectionSuccess, currentEnv }
     setStatusColor('#f59e0b')
     logMessage('[Uplink] Authenticating credentials with Cloudflare edge...', 'warn')
 
-    if (apiToken === 'sandbox' || apiToken === 'mock') {
+    if ((apiToken === 'sandbox' || apiToken === 'mock') && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
       setTimeout(() => {
         handleSuccessConnection()
         logMessage('[Uplink] Sandbox mode loaded. Mock access active for DO/R2/SQLite.', 'success')
@@ -94,7 +112,7 @@ export function UplinkModal({ isOpen, onClose, onConnectionSuccess, currentEnv }
     }
 
     try {
-      const response = await fetch('/api/verify-uplink', {
+      const response = await fetch(authenticatedUser ? '/api/verify-uplink' : '/api/auth/cloudflare', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accountId, apiToken }),
@@ -102,7 +120,8 @@ export function UplinkModal({ isOpen, onClose, onConnectionSuccess, currentEnv }
       const data = await response.json()
 
       if (response.ok && data.success) {
-        const accountName = data.message.replace('Linked to account: ', '')
+        const accountName = data.accountName || data.message?.replace('Linked to account: ', '') || data.user?.displayName
+        if (data.user) onAuthenticationChange(data.user)
         handleSuccessConnection(accountName)
         logMessage(`[Uplink] Secure uplink established. Linked to Account: ${accountName}`, 'success')
       } else {
@@ -116,6 +135,32 @@ export function UplinkModal({ isOpen, onClose, onConnectionSuccess, currentEnv }
       logMessage(`[Uplink] Handshake failed: ${err.message}`, 'error')
       alert(`Handshake failed: ${err.message}`)
     }
+  }
+
+  const refreshSession = async () => {
+    const response = await fetch('/api/auth/session/refresh', { method: 'POST' })
+    setSecurityMessage(response.ok ? 'Application session refreshed.' : 'Session refresh failed.')
+  }
+
+  const signOut = async () => {
+    await fetch('/api/auth/logout', { method: 'DELETE' })
+    onAuthenticationChange(null)
+    onConnectionSuccess(false)
+    setActiveSessions([])
+    setSecurityMessage('')
+    onClose()
+  }
+
+  const revokeAllSessions = async () => {
+    const response = await fetch('/api/auth/sessions/revoke-all', { method: 'POST' })
+    if (!response.ok) {
+      setSecurityMessage('Unable to revoke active sessions.')
+      return
+    }
+    onAuthenticationChange(null)
+    onConnectionSuccess(false)
+    setActiveSessions([])
+    onClose()
   }
 
   return (
@@ -160,10 +205,10 @@ export function UplinkModal({ isOpen, onClose, onConnectionSuccess, currentEnv }
             className="panel-icon"
             style={{ width: '24px', height: '24px', color: '#38bdf8' }}
           />
-          <h2 style={{ fontSize: '1.2rem', margin: 0, color: '#fff' }}>Cloudflare Uplink</h2>
+          <h2 style={{ fontSize: '1.2rem', margin: 0, color: '#fff' }}>{authenticatedUser ? 'Account & Cloudflare Uplink' : 'Sign in & connect Uplink'}</h2>
         </div>
         <p className="panel-desc" style={{ fontSize: '0.85rem', color: '#cbd5e1', marginBottom: '1.5rem' }}>
-          Configure endpoints and authenticate connection keys.
+          {authenticatedUser ? 'Manage your application session and encrypted Cloudflare deployment connection.' : 'Verify your Cloudflare account to create an application identity and encrypted deployment connection.'}
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
@@ -201,7 +246,7 @@ export function UplinkModal({ isOpen, onClose, onConnectionSuccess, currentEnv }
                 id="apiToken"
                 value={apiToken}
                 onChange={(e) => setApiToken(e.target.value)}
-                placeholder="Enter API Token (type 'sandbox' for mock)"
+                placeholder="Enter a scoped Cloudflare API Token"
                 required
                 autoComplete="off"
                 style={{
@@ -238,9 +283,26 @@ export function UplinkModal({ isOpen, onClose, onConnectionSuccess, currentEnv }
             disabled={isConnecting}
             className="w-full mt-2"
           >
-            <span>{isConnecting ? 'Connecting Handshake...' : 'Establish Secure Uplink'}</span>
+            <span>{isConnecting ? 'Connecting Handshake...' : authenticatedUser ? 'Replace Secure Uplink' : 'Sign in & Establish Uplink'}</span>
           </Button>
         </form>
+
+        {authenticatedUser && <section className="uplink-security-panel" aria-label="Application account security">
+          <div className="uplink-security-panel__heading">
+            <ShieldCheck className="size-4" />
+            <div><strong>{authenticatedUser.displayName}</strong><span>Authenticated application account</span></div>
+          </div>
+          <div className="uplink-security-panel__sessions">
+            <span><Laptop className="size-3.5" /> {activeSessions.length} active session{activeSessions.length === 1 ? '' : 's'}</span>
+            {activeSessions.find((session) => session.current) && <small>Current session expires {new Date(activeSessions.find((session) => session.current)!.expires_at).toLocaleString()}</small>}
+          </div>
+          {securityMessage && <p className="uplink-security-panel__message">{securityMessage}</p>}
+          <div className="uplink-security-panel__actions">
+            <button type="button" onClick={() => void refreshSession()}><RefreshCw className="size-3.5" /> Refresh session</button>
+            <button type="button" onClick={() => void signOut()}><LogOut className="size-3.5" /> Sign out</button>
+            <button className="is-danger" type="button" onClick={() => void revokeAllSessions()}>Revoke all</button>
+          </div>
+        </section>}
 
         <div
           style={{

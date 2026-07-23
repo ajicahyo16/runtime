@@ -1,0 +1,31 @@
+{
+  "name": "create and read a private notes-workspace note",
+  "actor": "NotesWorkspace",
+  "partition": "notes-acceptance",
+  "steps": [
+    {
+      "operation": "CreateNote",
+      "idempotencyKey": "notes-workspace-note-1",
+      "input": {
+        "noteId": "phase-21",
+        "title": "Composable blueprint",
+        "body": "Project-specific fixture for the module-free composition"
+      },
+      "expectData": {
+        "id": "phase-21",
+        "title": "Composable blueprint"
+      }
+    },
+    {
+      "operation": "GetNote",
+      "input": {
+        "noteId": "phase-21"
+      },
+      "expectData": {
+        "id": "phase-21",
+        "title": "Composable blueprint",
+        "body": "Project-specific fixture for the module-free composition"
+      }
+    }
+  ]
+}

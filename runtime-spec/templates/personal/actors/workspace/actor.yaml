@@ -1,0 +1,10 @@
+version: lacify.dev/actor/v1
+name: Workspace
+description: Owns private notes for one personal workspace.
+partitionBy: workspaceId
+storage: sqlite
+commands:
+  - CreateNote
+operations:
+  - ./operations/create-note.operation.yaml
+  - ./operations/get-note.operation.yaml

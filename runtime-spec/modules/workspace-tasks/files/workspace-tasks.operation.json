@@ -1,0 +1,19 @@
+{
+  "name": "workspace tasks module",
+  "actor": "Workspace",
+  "partition": "module-workspace",
+  "steps": [
+    {
+      "operation": "CreateTask",
+      "idempotencyKey": "module-task-1",
+      "input": {"taskId": "module-task", "title": "Reusable task"},
+      "expectData": {"id": "module-task", "title": "Reusable task", "completed": 0}
+    },
+    {
+      "operation": "CompleteTask",
+      "idempotencyKey": "module-task-2",
+      "input": {"taskId": "module-task"},
+      "expectData": {"id": "module-task", "title": "Reusable task", "completed": 1}
+    }
+  ]
+}

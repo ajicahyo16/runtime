@@ -1,0 +1,5 @@
+version: lacify.dev/v1
+project: phase10-approval
+runtime: request-response
+actors:
+  - ./actors/approval-queue/actor.yaml

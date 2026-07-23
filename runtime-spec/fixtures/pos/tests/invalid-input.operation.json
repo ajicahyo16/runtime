@@ -1,0 +1,17 @@
+{
+  "name": "reject invalid command input",
+  "actor": "Outlet",
+  "partition": "outlet-test",
+  "steps": [
+    {
+      "operation": "PlaceOrder",
+      "input": {
+        "orderId": "invalid-order",
+        "total": "not-an-integer"
+      },
+      "expectError": {
+        "code": "invalid_input_type"
+      }
+    }
+  ]
+}

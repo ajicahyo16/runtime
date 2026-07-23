@@ -1,0 +1,143 @@
+{
+  "version": "lacify.dev/review/v2",
+  "reviewId": "review_0ecac9ccc54e40fa9b8679e59ecb817b16db96e5",
+  "project": "crm-operations",
+  "environment": "development",
+  "projectFingerprint": "d6870c93e326cf407661003172341b5344e547bdf830e1ca0e53ec86094cb429",
+  "sourceManifestFingerprint": "532b17f81e03434d62a3a9aa556061f94769be20ee33889f9370c548714f1915",
+  "sourceFiles": [
+    {
+      "path": "actors/workspace/actor.yaml",
+      "bytes": 423,
+      "hash": "b18bb218d6ea19a4334b15b91455a4c2b635e1220babcbe3e86e296230bb43e1"
+    },
+    {
+      "path": "actors/workspace/migrations/0001_initial.sql",
+      "bytes": 254,
+      "hash": "581739468676b94f43c39d05e38c01187ffedc0cd0e5b9e54241e4385ba76fa1"
+    },
+    {
+      "path": "actors/workspace/migrations/0100_workspace_projects.sql",
+      "bytes": 296,
+      "hash": "a98bbbca50f64a826ce82ba929268a97b2abb270b83502bad6f7420f4d507814"
+    },
+    {
+      "path": "actors/workspace/operations/create-note.operation.yaml",
+      "bytes": 316,
+      "hash": "75146967de6c098217593b100ff2b59bdeb00d18971f9084b2c3a9767dc36f67"
+    },
+    {
+      "path": "actors/workspace/operations/create-note.sql",
+      "bytes": 153,
+      "hash": "29e86401593028af904e7e9bceaaf5cb8e1ca88f7b48c02705dbcfe0366c27ec"
+    },
+    {
+      "path": "actors/workspace/operations/create-project.operation.yaml",
+      "bytes": 397,
+      "hash": "4cc60c720310fb1cac37479b5605f1e194789040d080211fb7202aac29882303"
+    },
+    {
+      "path": "actors/workspace/operations/create-project.sql",
+      "bytes": 209,
+      "hash": "4ce31b7e498c2299a02bf8140306eb52a1302fbb5ffb4afed9a7b4401087583d"
+    },
+    {
+      "path": "actors/workspace/operations/get-note.operation.yaml",
+      "bytes": 253,
+      "hash": "f4c94214ec599832b60dfb1bd054fd199311829f85fdbcb236130348e503a8c1"
+    },
+    {
+      "path": "actors/workspace/operations/get-note.sql",
+      "bytes": 86,
+      "hash": "5067692ac2daade93e209a7625902b0436f729c960c18ddb36dfc532d24a213e"
+    },
+    {
+      "path": "actors/workspace/operations/get-project.operation.yaml",
+      "bytes": 299,
+      "hash": "125df10f49c3a05137d0aae120c7d298457987ca9ce35f446512a9187a485fa2"
+    },
+    {
+      "path": "actors/workspace/operations/get-project.sql",
+      "bytes": 114,
+      "hash": "c2ff032ffb1c9b7ee03e432c310375dc0ef5a5d2ffd07f00eac4d321de6bf05d"
+    },
+    {
+      "path": "actors/workspace/operations/list-projects.operation.yaml",
+      "bytes": 311,
+      "hash": "896efc1e172627ecdadd1fae528b317d6b42013c74614fa83d4294832bd25847"
+    },
+    {
+      "path": "actors/workspace/operations/list-projects.sql",
+      "bytes": 141,
+      "hash": "626ec8a37936b65fd7006ee8ba6bef5d798f9dae26eb6f0dca554834fa1a0003"
+    },
+    {
+      "path": "lacify.runtime.yaml",
+      "bytes": 115,
+      "hash": "c780fce6d214061c89db186b00d519f69f4fbc05fc8b658a5849e66658237564"
+    },
+    {
+      "path": "tests/create-and-read.operation.json",
+      "bytes": 813,
+      "hash": "23e1197012404e75adab10a4037b0c75c1bc7f593b79bb0fe7c1722b6425ac61"
+    }
+  ],
+  "plans": [
+    {
+      "actor": "Workspace",
+      "valid": true,
+      "planId": "572f57cd1212b74966d0fb6931dca51ef7e339305cd9e08a60e4da05f4a7e7c0",
+      "alreadyApplied": [],
+      "pending": [
+        {
+          "id": "0001_initial",
+          "checksum": "23a53f5b622f1ac4e334ab702cdf759ecc165304d94ee8e5675fb753332acdad",
+          "classification": "additive",
+          "changes": [
+            {
+              "change": "additive",
+              "count": 2
+            }
+          ]
+        },
+        {
+          "id": "0100_workspace_projects",
+          "checksum": "e1c5d85926449ae283bc8a607fcc9e8d6c6b3f552c7e8c7d0b9b3839c7497f9c",
+          "classification": "additive",
+          "changes": [
+            {
+              "change": "additive",
+              "count": 2
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    }
+  ],
+  "tests": {
+    "passed": true,
+    "count": 1,
+    "files": [
+      {
+        "file": "create-and-read.operation.json",
+        "name": "create and read an operations note",
+        "steps": 2
+      }
+    ]
+  },
+  "summary": {
+    "actors": 1,
+    "operations": 5,
+    "pendingMigrations": 2
+  },
+  "binding": {
+    "receiptVersion": 2,
+    "projectFingerprint": "d6870c93e326cf407661003172341b5344e547bdf830e1ca0e53ec86094cb429",
+    "environment": "development",
+    "planIds": [
+      "572f57cd1212b74966d0fb6931dca51ef7e339305cd9e08a60e4da05f4a7e7c0"
+    ],
+    "sourceManifestFingerprint": "532b17f81e03434d62a3a9aa556061f94769be20ee33889f9370c548714f1915"
+  }
+}

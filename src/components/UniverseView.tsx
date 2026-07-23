@@ -218,10 +218,10 @@ export function UniverseView({ project }: { project: string }) {
         <div>
           <div className="panel-header flex items-center gap-2 mb-1.5">
             <span className="section-icon"><Circle className="size-4" /></span>
-            <h2 className="text-lg font-bold m-0">Live Transaction Flow</h2>
+          <h2 className="text-lg font-bold m-0">Topology preview</h2>
           </div>
           <p className="panel-desc text-xs text-muted-foreground mb-0">
-            Watch each business aggregate receive a command and persist its state in real time.
+            Inspect how configured aggregates route through the runtime. This is a local architecture preview.
           </p>
         </div>
         <div className="universe-panel__controls">
@@ -231,11 +231,11 @@ export function UniverseView({ project }: { project: string }) {
           </select>
           <Button variant="outline" size="sm" onClick={() => setIsLive((current) => !current)}>
             {isLive ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
-            {isLive ? 'Pause live' : 'Resume live'}
+            {isLive ? 'Pause animation' : 'Resume animation'}
           </Button>
           <Button size="sm" onClick={triggerTransaction} disabled={!actors.length}>
             <Send className="size-3.5" />
-            Run transaction
+            Animate route
           </Button>
         </div>
       </div>
@@ -257,7 +257,7 @@ export function UniverseView({ project }: { project: string }) {
           <span className="universe-state"><Database className="size-3.5" /> SQLite persistence ready</span>
         </div>
         <div className="universe-event-feed">
-          <div className="universe-event-feed__title"><Activity className="size-4" /> Latest transactions</div>
+          <div className="universe-event-feed__title"><Activity className="size-4" /> Preview activity</div>
           {events.length ? events.map((event) => (
             <button key={event.id} className="universe-event" onClick={() => setSelectedActorId(event.actorId)}>
               <span><b>{event.actorName}</b> · {event.action}</span><time>{event.time}</time>

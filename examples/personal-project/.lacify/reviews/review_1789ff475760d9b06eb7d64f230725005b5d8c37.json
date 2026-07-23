@@ -1,0 +1,164 @@
+{
+  "version": "lacify.dev/review/v2",
+  "reviewId": "review_1789ff475760d9b06eb7d64f230725005b5d8c37",
+  "project": "personal-project-vault",
+  "environment": "development",
+  "projectFingerprint": "95f6a6ae697cf8495d6bdd6f5bae9fe0c8793dc3f28ab9bce3b1d7e6f68957ee",
+  "sourceManifestFingerprint": "8d2f54d18b62b055d5c95b381f1ae417ef2a39c1e29ce15fc2b91148da3a6bd7",
+  "sourceFiles": [
+    {
+      "path": "actors/workspace/actor.yaml",
+      "bytes": 527,
+      "hash": "91a514fc630c5f9ced721f9425fb8081dac29f5bb7cd8fbe6b19fa2f44dcf44f"
+    },
+    {
+      "path": "actors/workspace/migrations/0001_initial.sql",
+      "bytes": 379,
+      "hash": "9fc24be2128049e78f13f7177797198f5f4cf9d146b7431dc3333bd36e8a65fd"
+    },
+    {
+      "path": "actors/workspace/migrations/0110_workspace_tasks.sql",
+      "bytes": 285,
+      "hash": "a58a67e767e009abc5f97165dc8a83c6f183018c8ba3a6906bc86807f8f5bd2b"
+    },
+    {
+      "path": "actors/workspace/operations/complete-task.operation.yaml",
+      "bytes": 266,
+      "hash": "4ded21cad7054156bb27cdafc3904f5d95fc16a2afb171a31a1e6656cbb23374"
+    },
+    {
+      "path": "actors/workspace/operations/complete-task.sql",
+      "bytes": 133,
+      "hash": "d28c4bc22bb7d7b151021c4e2175a141d0d9ce9761fe086a5df53bf8bbbb90c7"
+    },
+    {
+      "path": "actors/workspace/operations/create-project.operation.yaml",
+      "bytes": 397,
+      "hash": "4cc60c720310fb1cac37479b5605f1e194789040d080211fb7202aac29882303"
+    },
+    {
+      "path": "actors/workspace/operations/create-project.sql",
+      "bytes": 209,
+      "hash": "4ce31b7e498c2299a02bf8140306eb52a1302fbb5ffb4afed9a7b4401087583d"
+    },
+    {
+      "path": "actors/workspace/operations/create-task.operation.yaml",
+      "bytes": 307,
+      "hash": "5b3c01431620bb6e67aa01dde030f10927a2622dd6f4e46c75b297d58d41f7db"
+    },
+    {
+      "path": "actors/workspace/operations/create-task.sql",
+      "bytes": 165,
+      "hash": "a0d218be88a902b3d7a5e3c24f24dd9f0c075d5a41b0d478fab6b186522bd3f6"
+    },
+    {
+      "path": "actors/workspace/operations/get-project.operation.yaml",
+      "bytes": 299,
+      "hash": "125df10f49c3a05137d0aae120c7d298457987ca9ce35f446512a9187a485fa2"
+    },
+    {
+      "path": "actors/workspace/operations/get-project.sql",
+      "bytes": 106,
+      "hash": "f68800220cc8777bb08ab9c741182690dfdd7ee22730c60d9f8c4e0533edb477"
+    },
+    {
+      "path": "actors/workspace/operations/list-projects.operation.yaml",
+      "bytes": 346,
+      "hash": "4aa9088636cdca02665f7284e76c56a9cdc21d329680df5ecdb5c175e02eeaf4"
+    },
+    {
+      "path": "actors/workspace/operations/list-projects.sql",
+      "bytes": 154,
+      "hash": "d2d2cf95fc47b42ba1328ab058e893ef34f7492e25fd6ad41554e0c5c6db84de"
+    },
+    {
+      "path": "actors/workspace/operations/list-tasks.operation.yaml",
+      "bytes": 357,
+      "hash": "223ed6e471a5a0208bfb3e17d015614d23a9dd6c503fb4849f733f5d97c14b7f"
+    },
+    {
+      "path": "actors/workspace/operations/list-tasks.sql",
+      "bytes": 171,
+      "hash": "0e95bf48ce3df58adafe5a0a36a36f8c8878c6198040bb8a56138d779384cfb7"
+    },
+    {
+      "path": "lacify.runtime.yaml",
+      "bytes": 123,
+      "hash": "c7a70880c15b728eaf4cc05af44fd4413781e384a169bbe8db68823c28495766"
+    },
+    {
+      "path": "tests/create-and-read.operation.json",
+      "bytes": 861,
+      "hash": "04007acfaec9c09aa12699e64d99698c1d8e5b892ef63943d63fd6f461fc219e"
+    },
+    {
+      "path": "tests/partition-isolation.operation.json",
+      "bytes": 278,
+      "hash": "5957cf221bd8cfdd2ef46921456928bc7b86af61747e2d9b859864fb78475a3f"
+    },
+    {
+      "path": "tests/workspace-tasks.operation.json",
+      "bytes": 673,
+      "hash": "aa43b6d47b1d92a65f4b2d930ea101dfd65d20345c733da515ed13cb8eb19ffc"
+    }
+  ],
+  "plans": [
+    {
+      "actor": "Workspace",
+      "valid": true,
+      "planId": "a8979458fa5d481d8877a19871cea7971edca3c6a2235614c40ec6b46fbfc67f",
+      "alreadyApplied": [
+        "0001_initial"
+      ],
+      "pending": [
+        {
+          "id": "0110_workspace_tasks",
+          "checksum": "b74dafb66e0bbfb2067e8dd4de7103fd6be0081a8c9e891f46b61f14cacfe6ff",
+          "classification": "additive",
+          "changes": [
+            {
+              "change": "additive",
+              "count": 2
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    }
+  ],
+  "tests": {
+    "passed": true,
+    "count": 3,
+    "files": [
+      {
+        "file": "create-and-read.operation.json",
+        "name": "create and read a personal project",
+        "steps": 2
+      },
+      {
+        "file": "partition-isolation.operation.json",
+        "name": "project data remains inside its workspace partition",
+        "steps": 1
+      },
+      {
+        "file": "workspace-tasks.operation.json",
+        "name": "workspace tasks module",
+        "steps": 2
+      }
+    ]
+  },
+  "summary": {
+    "actors": 1,
+    "operations": 6,
+    "pendingMigrations": 1
+  },
+  "binding": {
+    "receiptVersion": 2,
+    "projectFingerprint": "95f6a6ae697cf8495d6bdd6f5bae9fe0c8793dc3f28ab9bce3b1d7e6f68957ee",
+    "environment": "development",
+    "planIds": [
+      "a8979458fa5d481d8877a19871cea7971edca3c6a2235614c40ec6b46fbfc67f"
+    ],
+    "sourceManifestFingerprint": "8d2f54d18b62b055d5c95b381f1ae417ef2a39c1e29ce15fc2b91148da3a6bd7"
+  }
+}

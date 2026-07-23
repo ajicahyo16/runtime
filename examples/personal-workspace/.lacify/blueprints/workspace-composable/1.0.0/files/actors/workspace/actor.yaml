@@ -1,0 +1,17 @@
+version: lacify.dev/actor/v1
+name: Workspace
+description: Owns private notes for one personal workspace.
+partitionBy: workspaceId
+storage: sqlite
+commands:
+  - CreateNote
+  - CreateTask
+  - CompleteTask
+  - SetTaskPriority
+operations:
+  - ./operations/create-note.operation.yaml
+  - ./operations/get-note.operation.yaml
+  - ./operations/create-task.operation.yaml
+  - ./operations/complete-task.operation.yaml
+  - ./operations/list-tasks.operation.yaml
+  - ./operations/set-task-priority.operation.yaml

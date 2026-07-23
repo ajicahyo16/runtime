@@ -1,0 +1,19 @@
+version: lacify.dev/operation/v1
+name: GetProject
+kind: query
+sql: ./get-project.sql
+input:
+  projectId:
+    type: string
+    required: true
+result:
+  mode: optional
+  fields:
+    id:
+      type: string
+    name:
+      type: string
+    description:
+      type: string
+    status:
+      type: string

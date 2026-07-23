@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "installations": [
+    {
+      "module": "workspace-tasks",
+      "moduleVersion": "1.1.0",
+      "moduleFingerprint": "404776ac7667ed51f3badd82cf2dd387058a69a8317b69e2a59514bb5e0f7c5d",
+      "actor": "Workspace",
+      "projectFingerprintBefore": "8f2645353bb227ddda8c7a977eca00beaae90b515fa2faf90906163392e1c10a",
+      "projectFingerprintAfter": "5fdd47a2241f8c6978069b7ffde97433d1859d0cf77164abe75ac756616520a9",
+      "installedAt": "2026-07-23T16:46:44.866Z"
+    }
+  ]
+}

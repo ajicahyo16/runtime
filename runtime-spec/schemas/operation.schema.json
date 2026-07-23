@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lacify.dev/schemas/operation.schema.json",
+  "title": "Lacify Runtime Operation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "name", "kind", "sql", "input", "result"],
+  "properties": {
+    "version": { "const": "lacify.dev/operation/v1" },
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9]{0,62}$"
+    },
+    "kind": { "enum": ["command", "query"] },
+    "sql": {
+      "type": "string",
+      "pattern": "^\\./[a-z0-9][a-z0-9-]{0,62}\\.sql$"
+    },
+    "input": {
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": {
+        "pattern": "^[a-z][A-Za-z0-9]{0,62}$",
+        "not": { "enum": ["partitionId", "now", "commandId"] }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "properties": {
+          "type": { "enum": ["string", "integer", "number", "boolean"] },
+          "required": { "type": "boolean" }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["none", "one", "optional", "many"] },
+        "fields": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 128,
+          "propertyNames": { "pattern": "^[a-z][A-Za-z0-9_]{0,62}$" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type"],
+            "properties": {
+              "type": { "enum": ["string", "integer", "number", "boolean"] },
+              "nullable": { "type": "boolean" }
+            }
+          }
+        },
+        "maxRows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "pagination": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cursorField", "defaultPageSize", "maxPageSize"],
+          "properties": {
+            "cursorField": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_]{0,62}$" },
+            "defaultPageSize": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "maxPageSize": { "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "mode": { "const": "many" } },
+            "required": ["mode"]
+          },
+          "then": { "required": ["maxRows", "fields"] },
+          "else": { "not": { "required": ["maxRows"] } }
+        },
+        {
+          "if": {
+            "properties": { "mode": { "const": "none" } },
+            "required": ["mode"]
+          },
+          "then": { "not": { "required": ["fields"] } },
+          "else": { "required": ["fields"] }
+        }
+      ]
+    }
+  }
+}

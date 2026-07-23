@@ -1,0 +1,34 @@
+{
+  "version": "lacify.dev/module/v1",
+  "moduleVersion": "1.1.0",
+  "name": "workspace-tasks",
+  "kind": "actor-extension",
+  "description": "Adds task records and typed task operations to a Workspace Actor.",
+  "target": {
+    "partitionBy": "workspaceId",
+    "storage": "sqlite"
+  },
+  "actorPatch": {
+    "commands": ["CreateTask", "CompleteTask", "SetTaskPriority"],
+    "operations": [
+      "./operations/create-task.operation.yaml",
+      "./operations/complete-task.operation.yaml",
+      "./operations/list-tasks.operation.yaml",
+      "./operations/set-task-priority.operation.yaml"
+    ]
+  },
+  "files": [
+    {"source": "files/0110_workspace_tasks.sql", "target": "actor/migrations/0110_workspace_tasks.sql"},
+    {"source": "files/create-task.operation.yaml", "target": "actor/operations/create-task.operation.yaml"},
+    {"source": "files/create-task.sql", "target": "actor/operations/create-task.sql"},
+    {"source": "files/complete-task.operation.yaml", "target": "actor/operations/complete-task.operation.yaml"},
+    {"source": "files/complete-task.sql", "target": "actor/operations/complete-task.sql"},
+    {"source": "files/list-tasks.operation.yaml", "target": "actor/operations/list-tasks.operation.yaml"},
+    {"source": "files/list-tasks.sql", "target": "actor/operations/list-tasks.sql"},
+    {"source": "files/workspace-tasks.operation.json", "target": "project/tests/workspace-tasks.operation.json"},
+    {"source": "files/0120_task_priority.sql", "target": "actor/migrations/0120_task_priority.sql"},
+    {"source": "files/set-task-priority.operation.yaml", "target": "actor/operations/set-task-priority.operation.yaml"},
+    {"source": "files/set-task-priority.sql", "target": "actor/operations/set-task-priority.sql"},
+    {"source": "files/workspace-task-priority.operation.json", "target": "project/tests/workspace-task-priority.operation.json"}
+  ]
+}

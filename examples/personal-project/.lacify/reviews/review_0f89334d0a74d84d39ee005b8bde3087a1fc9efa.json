@@ -1,0 +1,190 @@
+{
+  "version": "lacify.dev/review/v2",
+  "reviewId": "review_0f89334d0a74d84d39ee005b8bde3087a1fc9efa",
+  "project": "personal-project-vault",
+  "environment": "development",
+  "projectFingerprint": "46a291eea7b226c471ff2246c9e73785d37555d8f070b12c026c6cec088115ed",
+  "sourceManifestFingerprint": "d715c19ff7e68c0864c14cc6fcdb24bcae21d6f8bb7613e140848b5a68b97ff5",
+  "sourceFiles": [
+    {
+      "path": "actors/workspace/actor.yaml",
+      "bytes": 597,
+      "hash": "c6b3df03adfc30a5ee9bf9c012029a0e79d8d3a4a7c69c30bef9e3ad97a3afa5"
+    },
+    {
+      "path": "actors/workspace/migrations/0001_initial.sql",
+      "bytes": 379,
+      "hash": "9fc24be2128049e78f13f7177797198f5f4cf9d146b7431dc3333bd36e8a65fd"
+    },
+    {
+      "path": "actors/workspace/migrations/0110_workspace_tasks.sql",
+      "bytes": 285,
+      "hash": "a58a67e767e009abc5f97165dc8a83c6f183018c8ba3a6906bc86807f8f5bd2b"
+    },
+    {
+      "path": "actors/workspace/migrations/0120_task_priority.sql",
+      "bytes": 66,
+      "hash": "0f346c344797934a7b4be25db9cbe28ba1c29938cd79a161a17d0e456db52980"
+    },
+    {
+      "path": "actors/workspace/operations/complete-task.operation.yaml",
+      "bytes": 266,
+      "hash": "4ded21cad7054156bb27cdafc3904f5d95fc16a2afb171a31a1e6656cbb23374"
+    },
+    {
+      "path": "actors/workspace/operations/complete-task.sql",
+      "bytes": 133,
+      "hash": "d28c4bc22bb7d7b151021c4e2175a141d0d9ce9761fe086a5df53bf8bbbb90c7"
+    },
+    {
+      "path": "actors/workspace/operations/create-project.operation.yaml",
+      "bytes": 397,
+      "hash": "4cc60c720310fb1cac37479b5605f1e194789040d080211fb7202aac29882303"
+    },
+    {
+      "path": "actors/workspace/operations/create-project.sql",
+      "bytes": 209,
+      "hash": "4ce31b7e498c2299a02bf8140306eb52a1302fbb5ffb4afed9a7b4401087583d"
+    },
+    {
+      "path": "actors/workspace/operations/create-task.operation.yaml",
+      "bytes": 307,
+      "hash": "5b3c01431620bb6e67aa01dde030f10927a2622dd6f4e46c75b297d58d41f7db"
+    },
+    {
+      "path": "actors/workspace/operations/create-task.sql",
+      "bytes": 165,
+      "hash": "a0d218be88a902b3d7a5e3c24f24dd9f0c075d5a41b0d478fab6b186522bd3f6"
+    },
+    {
+      "path": "actors/workspace/operations/get-project.operation.yaml",
+      "bytes": 299,
+      "hash": "125df10f49c3a05137d0aae120c7d298457987ca9ce35f446512a9187a485fa2"
+    },
+    {
+      "path": "actors/workspace/operations/get-project.sql",
+      "bytes": 106,
+      "hash": "f68800220cc8777bb08ab9c741182690dfdd7ee22730c60d9f8c4e0533edb477"
+    },
+    {
+      "path": "actors/workspace/operations/list-projects.operation.yaml",
+      "bytes": 346,
+      "hash": "4aa9088636cdca02665f7284e76c56a9cdc21d329680df5ecdb5c175e02eeaf4"
+    },
+    {
+      "path": "actors/workspace/operations/list-projects.sql",
+      "bytes": 154,
+      "hash": "d2d2cf95fc47b42ba1328ab058e893ef34f7492e25fd6ad41554e0c5c6db84de"
+    },
+    {
+      "path": "actors/workspace/operations/list-tasks.operation.yaml",
+      "bytes": 357,
+      "hash": "223ed6e471a5a0208bfb3e17d015614d23a9dd6c503fb4849f733f5d97c14b7f"
+    },
+    {
+      "path": "actors/workspace/operations/list-tasks.sql",
+      "bytes": 171,
+      "hash": "0e95bf48ce3df58adafe5a0a36a36f8c8878c6198040bb8a56138d779384cfb7"
+    },
+    {
+      "path": "actors/workspace/operations/set-task-priority.operation.yaml",
+      "bytes": 321,
+      "hash": "f1b7d9d66811131f45e6227d5c02ceeacd821b690cb3494b59f5621ae325bdef"
+    },
+    {
+      "path": "actors/workspace/operations/set-task-priority.sql",
+      "bytes": 139,
+      "hash": "e10fd8952e26724d6ac01127a9f526fbbf51448f1a8b9f169d7d09b81549d78b"
+    },
+    {
+      "path": "lacify.runtime.yaml",
+      "bytes": 123,
+      "hash": "c7a70880c15b728eaf4cc05af44fd4413781e384a169bbe8db68823c28495766"
+    },
+    {
+      "path": "tests/create-and-read.operation.json",
+      "bytes": 861,
+      "hash": "04007acfaec9c09aa12699e64d99698c1d8e5b892ef63943d63fd6f461fc219e"
+    },
+    {
+      "path": "tests/partition-isolation.operation.json",
+      "bytes": 278,
+      "hash": "5957cf221bd8cfdd2ef46921456928bc7b86af61747e2d9b859864fb78475a3f"
+    },
+    {
+      "path": "tests/workspace-task-priority.operation.json",
+      "bytes": 740,
+      "hash": "032648b413b49fa5dcd95912bebe2189dfd1ffa7eda1dc76b4adebe83b123a54"
+    },
+    {
+      "path": "tests/workspace-tasks.operation.json",
+      "bytes": 673,
+      "hash": "aa43b6d47b1d92a65f4b2d930ea101dfd65d20345c733da515ed13cb8eb19ffc"
+    }
+  ],
+  "plans": [
+    {
+      "actor": "Workspace",
+      "valid": true,
+      "planId": "6d3d05c9d696be6204eb2a10943d2f895966de1d14275ef5305b7656b9877e8d",
+      "alreadyApplied": [
+        "0001_initial",
+        "0110_workspace_tasks"
+      ],
+      "pending": [
+        {
+          "id": "0120_task_priority",
+          "checksum": "2144038a91e1f1d9117d517a36136f81f1d2ff429661629ec59670e25003e626",
+          "classification": "additive",
+          "changes": [
+            {
+              "change": "additive",
+              "count": 1
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    }
+  ],
+  "tests": {
+    "passed": true,
+    "count": 4,
+    "files": [
+      {
+        "file": "create-and-read.operation.json",
+        "name": "create and read a personal project",
+        "steps": 2
+      },
+      {
+        "file": "partition-isolation.operation.json",
+        "name": "project data remains inside its workspace partition",
+        "steps": 1
+      },
+      {
+        "file": "workspace-task-priority.operation.json",
+        "name": "workspace task priority module upgrade",
+        "steps": 2
+      },
+      {
+        "file": "workspace-tasks.operation.json",
+        "name": "workspace tasks module",
+        "steps": 2
+      }
+    ]
+  },
+  "summary": {
+    "actors": 1,
+    "operations": 7,
+    "pendingMigrations": 1
+  },
+  "binding": {
+    "receiptVersion": 2,
+    "projectFingerprint": "46a291eea7b226c471ff2246c9e73785d37555d8f070b12c026c6cec088115ed",
+    "environment": "development",
+    "planIds": [
+      "6d3d05c9d696be6204eb2a10943d2f895966de1d14275ef5305b7656b9877e8d"
+    ],
+    "sourceManifestFingerprint": "d715c19ff7e68c0864c14cc6fcdb24bcae21d6f8bb7613e140848b5a68b97ff5"
+  }
+}

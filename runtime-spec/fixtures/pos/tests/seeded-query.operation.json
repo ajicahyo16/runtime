@@ -1,0 +1,19 @@
+{
+  "name": "read deterministic Development seed data",
+  "actor": "Outlet",
+  "partition": "seed-outlet",
+  "useSeedData": true,
+  "steps": [
+    {
+      "operation": "GetOrder",
+      "input": {
+        "orderId": "seed-order"
+      },
+      "expectData": {
+        "id": "seed-order",
+        "total": 5000,
+        "status": "Confirmed"
+      }
+    }
+  ]
+}

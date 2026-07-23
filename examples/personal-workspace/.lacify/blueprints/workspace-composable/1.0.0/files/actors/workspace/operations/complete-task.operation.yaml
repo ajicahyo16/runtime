@@ -1,0 +1,17 @@
+version: lacify.dev/operation/v1
+name: CompleteTask
+kind: command
+sql: ./complete-task.sql
+input:
+  taskId:
+    type: string
+    required: true
+result:
+  mode: one
+  fields:
+    id:
+      type: string
+    title:
+      type: string
+    completed:
+      type: integer

@@ -1,30 +1,50 @@
-# Phase 4: Lifecycle Execution Visualizer
+# Phase 4: Lifecycle Simulation and Execution Visualizer
 
-This phase describes the interactive execution flow visualizer, which illustrates the request-response lifecycle of Lacify Runtime v1.
+## Status
 
-## 1. The Conveyor-Belt Execution Flow
-Instead of showing text logs, requests are visualized as glowing cargo packets moving along a track with 7 major processing check-points:
+**Complete.** The console can simulate and explain the Lacify request-response lifecycle without introducing a realtime runtime dependency.
 
+## Objective
+
+Help a developer understand how a command moves through an Actor before compiling or promoting a release.
+
+## Delivered
+
+- [x] Seven-stage lifecycle visualization.
+- [x] Aggregate, command, and partition selection.
+- [x] Safe sample payload input and validation.
+- [x] Step-by-step playback, pause, resume, and speed controls.
+- [x] Clear success and failure states.
+- [x] Simulation output separated from Production runtime evidence.
+- [x] Runtime observability links for real deployed command evidence.
+
+## Lifecycle
+
+```text
+Request
+  → Wake
+  → Validate
+  → Execute
+  → Persist
+  → Update Summary
+  → Respond
+  → Sleep
 ```
-[Request In] ──► ( Wake ) ──► ( Validate ) ──► ( Execute ) ──► ( Persist ) ──► ( Update Summary ) ──► ( Respond ) ──► ( Sleep )
-```
 
----
+## Product decisions
 
-## 2. Interactive Steps & Animations
+- Simulation is deterministic educational tooling; it is not a claim that a Production command ran.
+- Real health and command metrics are ingested by the Control Plane and correlated to deployment and release identity.
+- Runtime v1 remains request-response. Long-lived WebSocket, presence, multiplayer, and collaborative-state patterns are out of scope.
+- Telemetry failure cannot interrupt or roll back a successful business command.
 
-| Stage | Visual Representation | CSS/JS Trigger Effect |
-| :--- | :--- | :--- |
-| **Wake** | The "Actor" icon opens, changing from dark/grey to bright glowing Cyan. | Ring expand animation (`scale(1) -> scale(1.1)`). |
-| **Validate** | A laser scanning bar sweeps across the request packet. | Linear gradient transition moving top-to-bottom. |
-| **Execute** | Floating gears or energy lines connect to compute the logic. | Rotation transition on icon. |
-| **Persist** | A data packet drops down into a cylinder icon (SQLite). | Fast slide down with a green splash ring. |
-| **Update Summary** | Graphs and summary metrics flash and increment counters. | Number roll-up effect on the UI metrics. |
-| **Respond** | The packet is fired towards the client/user side. | Horizontal slide out with a fading trail. |
-| **Sleep** | The Actor icon closes and dims down to steel grey. | Slow transition opacity back to 0.4. |
+## Acceptance evidence
 
----
+- [x] A user can select an aggregate command and follow every lifecycle stage.
+- [x] Invalid input stops at validation and produces an explicit reason.
+- [x] The console distinguishes simulated output from deployed telemetry.
+- [x] No long-lived connection is required by the generated runtime.
 
-## 3. Playback Controls & Speed
-- **Live Stream Mode**: The visualizer listens to Worker events via SSE (Server-Sent Events) or WebSockets (developer-only diagnostic stream) and runs the animations in real-time.
-- **Playback Speed Controller**: Allows developers to slow down the animation (e.g. 0.5x speed) or pause at any step to inspect the data payload details in a drawer.
+## Next dependency
+
+Phase 5 adds generated web-application blueprints and the release/deployment experience.

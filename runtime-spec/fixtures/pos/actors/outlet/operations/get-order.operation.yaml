@@ -1,0 +1,17 @@
+version: lacify.dev/operation/v1
+name: GetOrder
+kind: query
+sql: ./get-order.sql
+input:
+  orderId:
+    type: string
+    required: true
+result:
+  mode: optional
+  fields:
+    id:
+      type: string
+    total:
+      type: integer
+    status:
+      type: string

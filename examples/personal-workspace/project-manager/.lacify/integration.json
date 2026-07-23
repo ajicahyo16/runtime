@@ -1,0 +1,50 @@
+{
+  "version": "lacify.dev/integration/v1",
+  "project": "project-manager",
+  "projectFingerprint": "5fdd47a2241f8c6978069b7ffde97433d1859d0cf77164abe75ac756616520a9",
+  "generatedClient": "generated/lacify/client.ts",
+  "serverAdapter": "generated/lacify/server.ts",
+  "requiredEnvironment": [
+    {
+      "name": "LACIFY_RUNTIME_URL",
+      "secret": false,
+      "scope": "server-only"
+    },
+    {
+      "name": "LACIFY_RUNTIME_TOKEN",
+      "secret": true,
+      "scope": "server-only"
+    }
+  ],
+  "actors": [
+    {
+      "name": "Workspace",
+      "operations": [
+        {
+          "name": "CompleteTask",
+          "kind": "command"
+        },
+        {
+          "name": "CreateNote",
+          "kind": "command"
+        },
+        {
+          "name": "CreateTask",
+          "kind": "command"
+        },
+        {
+          "name": "GetNote",
+          "kind": "query"
+        },
+        {
+          "name": "ListTasks",
+          "kind": "query"
+        },
+        {
+          "name": "SetTaskPriority",
+          "kind": "command"
+        }
+      ]
+    }
+  ]
+}

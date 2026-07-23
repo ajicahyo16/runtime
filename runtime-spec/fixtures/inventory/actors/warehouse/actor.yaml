@@ -1,0 +1,27 @@
+version: lacify.dev/actor/v1
+name: Warehouse
+description: Owns stock balances and movements for one warehouse.
+partitionBy: warehouseId
+storage: sqlite
+commands:
+  - ReceiveStock
+  - AdjustStock
+  - TransferStock
+stateMachines:
+  - name: TransferLifecycle
+    initial: Draft
+    states:
+      - Draft
+      - InTransit
+      - Received
+    transitions:
+      - command: TransferStock
+        from: Draft
+        to: InTransit
+      - command: ReceiveStock
+        from: InTransit
+        to: Received
+summaries:
+  - name: daily_stock_movements
+    period: daily
+    sourceTable: stock_movements

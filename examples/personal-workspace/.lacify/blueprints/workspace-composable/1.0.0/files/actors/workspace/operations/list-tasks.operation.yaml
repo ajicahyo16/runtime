@@ -1,0 +1,22 @@
+version: lacify.dev/operation/v1
+name: ListTasks
+kind: query
+sql: ./list-tasks.sql
+input:
+  completed:
+    type: integer
+    required: true
+result:
+  mode: many
+  maxRows: 100
+  fields:
+    id:
+      type: string
+    title:
+      type: string
+    completed:
+      type: integer
+  pagination:
+    cursorField: id
+    defaultPageSize: 25
+    maxPageSize: 100

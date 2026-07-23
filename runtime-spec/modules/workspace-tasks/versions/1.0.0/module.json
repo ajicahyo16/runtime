@@ -1,0 +1,28 @@
+{
+  "version": "lacify.dev/module/v1",
+  "name": "workspace-tasks",
+  "kind": "actor-extension",
+  "description": "Adds task records and typed task operations to a Workspace Actor.",
+  "target": {
+    "partitionBy": "workspaceId",
+    "storage": "sqlite"
+  },
+  "actorPatch": {
+    "commands": ["CreateTask", "CompleteTask"],
+    "operations": [
+      "./operations/create-task.operation.yaml",
+      "./operations/complete-task.operation.yaml",
+      "./operations/list-tasks.operation.yaml"
+    ]
+  },
+  "files": [
+    {"source": "files/0110_workspace_tasks.sql", "target": "actor/migrations/0110_workspace_tasks.sql"},
+    {"source": "files/create-task.operation.yaml", "target": "actor/operations/create-task.operation.yaml"},
+    {"source": "files/create-task.sql", "target": "actor/operations/create-task.sql"},
+    {"source": "files/complete-task.operation.yaml", "target": "actor/operations/complete-task.operation.yaml"},
+    {"source": "files/complete-task.sql", "target": "actor/operations/complete-task.sql"},
+    {"source": "files/list-tasks.operation.yaml", "target": "actor/operations/list-tasks.operation.yaml"},
+    {"source": "files/list-tasks.sql", "target": "actor/operations/list-tasks.sql"},
+    {"source": "files/workspace-tasks.operation.json", "target": "project/tests/workspace-tasks.operation.json"}
+  ]
+}

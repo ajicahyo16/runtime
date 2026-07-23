@@ -1,0 +1,20 @@
+version: lacify.dev/actor/v1
+name: Workspace
+description: Owns personal project records for one private workspace.
+partitionBy: workspaceId
+storage: sqlite
+commands:
+  - CreateProject
+  - CreateTask
+  - CompleteTask
+  - SetTaskPriority
+operations:
+  - ./operations/create-project.operation.yaml
+  - ./operations/get-project.operation.yaml
+  - ./operations/list-projects.operation.yaml
+  - ./operations/create-task.operation.yaml
+  - ./operations/complete-task.operation.yaml
+  - ./operations/list-tasks.operation.yaml
+  - ./operations/set-task-priority.operation.yaml
+summaries: []
+secretRefs: []

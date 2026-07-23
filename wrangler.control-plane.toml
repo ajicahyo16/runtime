@@ -1,10 +1,31 @@
 name = "lacify-control-plane"
 main = "control-plane/src/index.ts"
 compatibility_date = "2026-07-20"
+compatibility_flags = ["global_fetch_strictly_public"]
+workers_dev = true
+
+[triggers]
+crons = ["*/5 * * * *"]
 
 [vars]
 ALLOWED_ORIGIN = "https://runtime.getlacify.com"
 OAUTH_REDIRECT_URI = "https://runtime.getlacify.com/api/oauth/cloudflare/callback"
+PUBLIC_BASE_URL = "https://api.runtime.getlacify.com"
+CONTROL_DB_ID = "1e9c5200-6589-4d53-87e3-041a965643b4"
+
+[[ratelimits]]
+name = "CONTROL_RATE_LIMITER"
+namespace_id = "2001"
+simple = { limit = 1500, period = 60 }
+
+[[ratelimits]]
+name = "SENSITIVE_RATE_LIMITER"
+namespace_id = "2002"
+simple = { limit = 30, period = 60 }
+
+[[routes]]
+pattern = "api.runtime.getlacify.com"
+custom_domain = true
 
 [[d1_databases]]
 binding = "DB"

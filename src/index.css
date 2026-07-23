@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist-mono";
 
 @custom-variant dark (&:is(.dark *));
@@ -127,4 +126,94 @@
   html {
     @apply font-mono;
     }
+}
+
+/* Lacify v2 — semantic app tokens. The root is light; `.dark` is the only dark-mode override. */
+:root {
+  --app-canvas: #f7f8fa;
+  --app-surface: #ffffff;
+  --app-surface-subtle: #f3f4f6;
+  --app-text: #202124;
+  --app-text-muted: #62666d;
+  --app-line: #e1e3e6;
+  --app-line-strong: #cdd1d6;
+  --app-accent: #157347;
+  --app-accent-soft: #e8f5ed;
+  --app-accent-contrast: #ffffff;
+}
+
+.dark {
+  --app-canvas: #101112;
+  --app-surface: #171819;
+  --app-surface-subtle: #202224;
+  --app-text: #f1f2f3;
+  --app-text-muted: #a7abb0;
+  --app-line: #303235;
+  --app-line-strong: #46494d;
+  --app-accent: #6cdb9a;
+  --app-accent-soft: #183c29;
+  --app-accent-contrast: #102317;
+}
+
+.runtime-access-view { display: grid; gap: 1.25rem; padding-bottom: 3rem; }
+.runtime-access-hero {
+  position: relative; overflow: hidden; display: flex; align-items: flex-end; justify-content: space-between; gap: 2rem;
+  min-height: 230px; padding: clamp(1.5rem, 4vw, 3rem); border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 1.5rem;
+  background: radial-gradient(circle at 88% 15%, color-mix(in srgb, #7c3aed 36%, transparent), transparent 35%),
+    radial-gradient(circle at 65% 100%, color-mix(in srgb, #0ea5e9 22%, transparent), transparent 38%),
+    linear-gradient(135deg, color-mix(in srgb, var(--card) 96%, #111827), color-mix(in srgb, var(--card) 82%, #312e81));
+}
+.runtime-access-hero::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: linear-gradient(color-mix(in srgb, var(--border) 22%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--border) 22%, transparent) 1px, transparent 1px);
+  background-size: 34px 34px; mask-image: linear-gradient(to left, black, transparent 72%);
+}
+.runtime-access-hero > * { position: relative; z-index: 1; }
+.runtime-access-hero h1 { max-width: 720px; margin: .6rem 0 .75rem; font-size: clamp(1.8rem, 4vw, 3.3rem); line-height: 1.02; letter-spacing: -.055em; }
+.runtime-access-hero p { max-width: 720px; color: var(--muted-foreground); line-height: 1.65; }
+.runtime-access-eyebrow { display: inline-flex; align-items: center; gap: .5rem; color: #a78bfa; font-size: .76rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.runtime-access-score { display: grid; min-width: 138px; padding: 1.1rem; border: 1px solid color-mix(in srgb, #a78bfa 32%, transparent); border-radius: 1rem; background: color-mix(in srgb, var(--background) 58%, transparent); backdrop-filter: blur(14px); }
+.runtime-access-score strong { font-size: 2.4rem; line-height: 1; }
+.runtime-access-score span { margin-top: .35rem; color: var(--muted-foreground); font-size: .76rem; }
+.runtime-access-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, .8fr); gap: 1.25rem; }
+.runtime-access-side { display: grid; align-content: start; gap: 1.25rem; }
+.runtime-access-card { display: grid; gap: 1rem; padding: 1.25rem; }
+.runtime-access-card > header { display: flex; align-items: flex-start; gap: .75rem; }
+.runtime-access-card h2, .runtime-access-card h3 { margin: 0; }
+.runtime-access-card header p, .runtime-access-card > p { margin: .2rem 0 0; color: var(--muted-foreground); font-size: .82rem; line-height: 1.55; }
+.runtime-access-card pre { overflow-x: auto; margin: 0; padding: .9rem; border: 1px solid var(--border); border-radius: .8rem; background: color-mix(in srgb, var(--background) 80%, black); font-size: .74rem; line-height: 1.65; }
+.runtime-access-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
+.runtime-access-form-grid label, .runtime-operation-picker label { display: grid; gap: .4rem; color: var(--muted-foreground); font-size: .76rem; }
+.runtime-access-form-grid input, .runtime-access-form-grid select { width: 100%; padding: .7rem .8rem; border: 1px solid var(--border); border-radius: .7rem; color: var(--foreground); background: var(--background); }
+.runtime-operation-picker { display: grid; gap: .8rem; padding: 1rem; border: 1px solid var(--border); border-radius: .9rem; }
+.runtime-operation-picker fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; padding: .8rem; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: .75rem; }
+.runtime-operation-picker legend { padding: 0 .35rem; font-size: .78rem; font-weight: 700; }
+.runtime-operation-picker label { grid-template-columns: auto 1fr; align-items: center; padding: .55rem; border-radius: .6rem; background: color-mix(in srgb, var(--muted) 42%, transparent); cursor: pointer; }
+.runtime-operation-picker label span { display: grid; }
+.runtime-operation-picker label strong { color: var(--foreground); font-size: .78rem; }
+.runtime-operation-picker label small { font-size: .68rem; text-transform: uppercase; }
+.runtime-one-time-token { display: grid; gap: .7rem; padding: 1rem; border: 1px solid color-mix(in srgb, #f59e0b 45%, var(--border)); border-radius: .9rem; background: color-mix(in srgb, #f59e0b 8%, var(--card)); }
+.runtime-one-time-token > div { display: flex; justify-content: space-between; gap: .75rem; }
+.runtime-one-time-token span { color: var(--muted-foreground); font-size: .75rem; }
+.runtime-one-time-token code { overflow-wrap: anywhere; padding: .65rem; border-radius: .55rem; background: var(--background); font-size: .72rem; }
+.runtime-credential-list { display: grid; gap: .65rem; }
+.runtime-credential-list > article { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 1rem; padding: .85rem; border: 1px solid var(--border); border-radius: .8rem; }
+.runtime-credential-list article > div:first-child, .runtime-credential-meta { display: grid; gap: .22rem; }
+.runtime-credential-list span, .runtime-credential-list time { color: var(--muted-foreground); font-size: .72rem; }
+.runtime-credential-status { width: fit-content; padding: .2rem .45rem; border-radius: 999px; font-weight: 700; text-transform: uppercase; }
+.runtime-credential-status.active { color: #34d399; background: color-mix(in srgb, #10b981 14%, transparent); }
+.runtime-credential-status.revoked, .runtime-credential-status.expired { color: #f87171; background: color-mix(in srgb, #ef4444 12%, transparent); }
+.mobile-mode-picker { display: none; }
+
+@media (max-width: 900px) {
+  .runtime-access-layout { grid-template-columns: 1fr; }
+  .runtime-access-hero { align-items: flex-start; flex-direction: column; }
+}
+
+@media (max-width: 640px) {
+  .mobile-mode-picker { display: grid; gap: .15rem; margin-right: auto; color: var(--muted-foreground); font-size: .65rem; }
+  .mobile-mode-picker select { max-width: 148px; padding: .35rem .5rem; border: 1px solid var(--border); border-radius: .5rem; color: var(--foreground); background: var(--background); font-size: .72rem; }
+  .runtime-access-form-grid, .runtime-operation-picker fieldset { grid-template-columns: 1fr; }
+  .runtime-credential-list > article { grid-template-columns: 1fr; }
 }

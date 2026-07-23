@@ -1,0 +1,19 @@
+id: order
+name: order
+aggregateType: order
+key: orderId
+size: 1.0 MB
+queries: 0
+status: dormant
+objects:
+  - name: order
+    fields: id, createdAt
+actions:
+  - Createorder
+  - Updateorder
+states:
+  - obj: order
+    flow:
+      - Draft
+      - Active
+      - Completed

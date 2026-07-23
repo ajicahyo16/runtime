@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Server, Sparkles, Plus } from 'lucide-react'
+import { ArrowRight, Server, Sparkles, Plus } from 'lucide-react'
 import { ActorCard, type Actor } from '@/components/ActorCard'
 import { Button } from '@/components/ui/button'
 import { deleteContract, loadContracts } from '@/lib/contracts'
@@ -62,16 +62,15 @@ export function ActorsGrid({
   }
 
   return (
-    <section className="glass-card panel-vaults workspace-panel">
-      {/* Header Section */}
-      <div className="workspace-panel__header">
+    <section className="build-workspace">
+      <div className="build-workspace__header">
         <div className="workspace-panel__title">
+          <p className="workspace-kicker">Architecture</p>
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="section-icon"><Server className="size-4" /></span>
-            <h2 className="text-xl font-bold tracking-tight">Business Objects</h2>
+            <h2 className="text-2xl font-semibold tracking-tight">Design your domain</h2>
           </div>
           <p className="text-xs text-muted-foreground">
-            Model the data and actions your business needs. Each object runs in an isolated Durable Object boundary.
+            Each aggregate owns its data, commands, and lifecycle. Start with the boundary that matters most to the business.
           </p>
         </div>
 
@@ -82,7 +81,7 @@ export function ActorsGrid({
             onClick={onAIBuilder}
           >
             <Sparkles className="size-3.5" />
-            <span>AI App Builder</span>
+            <span>Generate from brief</span>
           </Button>
           <Button
             variant="outline"
@@ -102,28 +101,20 @@ export function ActorsGrid({
         </p>
       )}
 
-      {/* Business object cards */}
-      <div className="actors-grid">
-        {actors.map((actor) => (
-          <ActorCard
-            key={actor.id}
-            actor={actor}
-            onClick={() => onActorClick(actor)}
-            onDelete={() => handleDelete(actor.id)}
-          />
-        ))}
+      <div className="build-workspace__body">
+        <section className="aggregate-list" aria-label="Business aggregates">
+          <div className="aggregate-list__header"><div><h3>Aggregates</h3><p>{actors.length} defined in this project</p></div><span>Ownership boundary</span></div>
+          <div className="actors-grid">{actors.map((actor) => <ActorCard key={actor.id} actor={actor} onClick={() => onActorClick(actor)} onDelete={() => handleDelete(actor.id)} />)}</div>
+          {actors.length === 0 && <div className="build-empty"><Server className="size-6" /><div><h3>No aggregate yet</h3><p>Define the first business boundary for this project.</p></div><Button onClick={onAddBusinessObject}><Plus className="size-4" />Create aggregate</Button></div>}
+        </section>
+        <aside className="build-next-step">
+          <p className="workspace-kicker">Next step</p>
+          <h3>{actors.length ? 'Review an aggregate' : 'Create your first aggregate'}</h3>
+          <p>{actors.length ? 'Open an aggregate to define its objects, commands, and lifecycle transitions.' : 'Start with a single business responsibility, such as an order or appointment.'}</p>
+          <Button variant="outline" size="sm" onClick={onAddBusinessObject}><Plus className="size-3.5" /> New aggregate</Button>
+          <div className="build-next-step__rule"><ArrowRight className="size-3.5" /> Releases remain unavailable until the Control API validates an immutable contract.</div>
+        </aside>
       </div>
-
-      {actors.length === 0 && (
-        <div className="text-muted-foreground flex flex-col items-center justify-center gap-3 py-12 text-sm border border-dashed border-white/10 rounded-xl mb-8">
-          <Server className="size-8 opacity-50" />
-          <p>No business objects yet.</p>
-          <Button onClick={onAddBusinessObject}>
-            <Plus className="size-4" />
-            Create your first object
-          </Button>
-        </div>
-      )}
 
     </section>
   )

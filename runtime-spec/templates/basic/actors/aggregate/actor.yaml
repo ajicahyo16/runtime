@@ -1,0 +1,7 @@
+version: lacify.dev/actor/v1
+name: Aggregate
+description: Replace this with one cohesive business ownership boundary.
+partitionBy: aggregateId
+storage: sqlite
+commands:
+  - Create
