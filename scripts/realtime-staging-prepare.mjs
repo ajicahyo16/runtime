@@ -14,6 +14,7 @@ function stagingWrangler(source) {
   const config = JSON.parse(source)
   config.workers_dev = true
   config.vars = { ...(config.vars || {}), LACIFY_ENVIRONMENT: 'staging' }
+  delete config.limits
   return `${JSON.stringify(config, null, 2)}\n`
 }
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-**In progress.**
+**Complete.**
 
 ## Goal
 
@@ -39,16 +39,16 @@ npm run realtime:staging:prepare
 
 - [x] Validate local source and generated staging artifact isolation.
 - [x] Authenticate Wrangler against the intended Cloudflare account.
-- [ ] Push a green source checkpoint.
-- [ ] Deploy all isolated staging components.
-- [ ] Apply staging secrets without persisting their values.
-- [ ] Run exact deployment preflight and component health checks.
-- [ ] Run 30, 100, and 300 external WebSocket clients incrementally.
-- [ ] Exercise real-network reconnect and slow-consumer behavior.
-- [ ] Exercise downstream outage and recovery without source-operation replay.
-- [ ] Record Cloudflare latency, Durable Object metrics, storage usage, and
+- [x] Push a green source checkpoint.
+- [x] Deploy all isolated staging components.
+- [x] Apply staging secrets without persisting their values.
+- [x] Run exact deployment preflight and component health checks.
+- [x] Run 30, 100, and 300 external WebSocket clients incrementally.
+- [x] Exercise real-network reconnect and slow-consumer behavior.
+- [x] Exercise downstream outage and recovery without source-operation replay.
+- [x] Record Cloudflare latency, Durable Object metrics, storage usage, and
   relevant quota evidence without payloads.
-- [ ] Pass final repository quality gates.
+- [x] Pass final repository quality gates.
 
 ## Stop conditions
 

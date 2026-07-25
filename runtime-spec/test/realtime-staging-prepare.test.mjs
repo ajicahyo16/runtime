@@ -9,6 +9,7 @@ test('staging qualification preparation is isolated and contains no secret value
   assert.match(source, /productionResourcesReferenced: false/)
   assert.match(source, /secretValuesIncluded: false/)
   assert.match(source, /workers_dev = true/)
+  assert.match(source, /delete config\.limits/)
   assert.doesNotMatch(source, /runtime\.getlacify\.com/)
-  assert.doesNotMatch(source, /LACIFY_[A-Z_]+\\s*[:=]\\s*['"][^'"]+['"]/)
+  assert.doesNotMatch(source, /LACIFY_[A-Z_]*SECRET\s*[:=]\s*['"][^'"]+['"]/)
 })

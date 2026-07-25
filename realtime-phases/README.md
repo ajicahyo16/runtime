@@ -13,7 +13,7 @@
 | [R3.3](./phase_r3_3_event_router.md) | Authenticated Event Router and deployment wiring | Complete |
 | [R3.4](./phase_r3_4_production_safety.md) | Backpressure, recovery, health, preflight, and retention | Complete |
 | [R3.5](./phase_r3_5_local_capacity.md) | Local 30/100/300-user capacity and cost evidence | Complete |
-| [R3.6](./phase_r3_6_staging_qualification.md) | Isolated Cloudflare staging qualification | In progress |
+| [R3.6](./phase_r3_6_staging_qualification.md) | Isolated Cloudflare staging qualification | Complete |
 | R3 | Reliability, backpressure, retention, and deployment | In progress |
 | R4 | Yjs-compatible documents and editors | Planned |
 | R5 | Dashboard streams and multiplayer state | Planned |
