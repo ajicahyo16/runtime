@@ -1,0 +1,88 @@
+{
+  "format": "lacify-realtime-capacity-evidence-summary/v1",
+  "recordedAt": "2026-07-25T08:39:35.232Z",
+  "environment": "local-miniflare",
+  "command": "npm run realtime:capacity",
+  "remoteMutation": false,
+  "providerQuotaConsumed": false,
+  "workload": {
+    "usersPerRoom": 10,
+    "cyclesPerDayForBudgetEstimate": 60,
+    "reconnectRatio": 0.1,
+    "eventsPerUserCycle": {
+      "ping": 1,
+      "immediate": 1,
+      "segmented": 1,
+      "presence": 1
+    }
+  },
+  "scenarios": [
+    {
+      "users": 30,
+      "rooms": 3,
+      "accepted": 30,
+      "reconnected": 3,
+      "errors": 0,
+      "connectionP95Ms": 259.55,
+      "immediateAckP95Ms": 10.77,
+      "segmentedDurableP95Ms": 35.24,
+      "reconnectP95Ms": 3.16,
+      "r2Segments": 3,
+      "passed": true
+    },
+    {
+      "users": 100,
+      "rooms": 10,
+      "accepted": 100,
+      "reconnected": 10,
+      "errors": 0,
+      "connectionP95Ms": 75.83,
+      "immediateAckP95Ms": 16.58,
+      "segmentedDurableP95Ms": 24.31,
+      "reconnectP95Ms": 6.43,
+      "r2Segments": 10,
+      "passed": true
+    },
+    {
+      "users": 300,
+      "rooms": 30,
+      "accepted": 300,
+      "reconnected": 30,
+      "errors": 0,
+      "connectionP95Ms": 31.21,
+      "immediateAckP95Ms": 15.21,
+      "segmentedDurableP95Ms": 21.37,
+      "reconnectP95Ms": 33.71,
+      "r2Segments": 30,
+      "passed": true,
+      "budgetEstimate": {
+        "workerRequestsPerDayPercent": 2.1,
+        "durableObjectRequestsPerDayPercent": 5.79,
+        "sqliteRowsWrittenPerDayPercent": 43.5,
+        "r2ClassAOperationsPerMonthPercent": 5.4
+      }
+    }
+  ],
+  "failureEvidence": [
+    "router alarm recovers pending delivery without replaying the source operation",
+    "router opens a bounded per-target circuit",
+    "router rejects work above pending shard capacity",
+    "client retry survives persisted actor restart",
+    "segmented retry recovers after intent, R2, and catalog commit fault points"
+  ],
+  "providerAssumptions": {
+    "checkedAt": "2026-07-25",
+    "workerRequestsPerDay": 100000,
+    "durableObjectRequestsPerDay": 100000,
+    "sqliteRowsWrittenPerDay": 100000,
+    "r2ClassAOperationsPerMonth": 1000000,
+    "websocketMessagesPerDurableObjectRequest": 20
+  },
+  "limitations": [
+    "Local latency is not Cloudflare edge latency.",
+    "Durable Object duration and account-wide usage require staging telemetry.",
+    "Slow-consumer network behavior remains a controlled staging gate.",
+    "Budget values are estimates from the declared workload, not a provider invoice."
+  ],
+  "passed": true
+}

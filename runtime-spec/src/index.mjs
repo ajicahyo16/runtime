@@ -6,11 +6,15 @@ import { load, JSON_SCHEMA } from 'js-yaml'
 
 const projectKeys = new Set(['version', 'project', 'runtime', 'actors'])
 const actorKeys = new Set(['version', 'name', 'description', 'partitionBy', 'storage', 'commands', 'operations', 'stateMachines', 'summaries', 'secretRefs'])
-const operationKeys = new Set(['version', 'name', 'kind', 'sql', 'input', 'result'])
+const operationKeys = new Set(['version', 'name', 'kind', 'sql', 'input', 'result', 'emits'])
 const operationInputKeys = new Set(['type', 'required'])
 const operationResultKeys = new Set(['mode', 'maxRows', 'fields', 'pagination'])
 const operationResultFieldKeys = new Set(['type', 'nullable'])
 const operationPaginationKeys = new Set(['cursorField', 'defaultPageSize', 'maxPageSize'])
+const operationEmitKeys = new Set(['event', 'target', 'durability', 'fields', 'reporting', 'realtime'])
+const operationReportingKeys = new Set(['keyField', 'sequenceField', 'dimensions', 'measures'])
+const operationMeasureKeys = new Set(['field', 'aggregate'])
+const operationRealtimeKeys = new Set(['roomClass', 'roomField'])
 const stateMachineKeys = new Set(['name', 'initial', 'states', 'transitions'])
 const transitionKeys = new Set(['command', 'from', 'to'])
 const summaryKeys = new Set(['name', 'period', 'sourceTable'])
@@ -206,6 +210,54 @@ export function validateOperationDocument(value, declaredCommands = [], file = '
   if (typeof value.sql !== 'string' || !operationSqlPathPattern.test(value.sql)) issues.push(issue(file, 'sql', 'sql_path', 'SQL path must match ./<operation-id>.sql.'))
   if (value.kind === 'command' && typeof value.name === 'string' && !declaredCommands.includes(value.name)) {
     issues.push(issue(file, 'name', 'command_reference', `Command operation "${value.name}" must reference a command declared by its Actor.`))
+  }
+  if (value.emits !== undefined) {
+    if (value.kind !== 'command') issues.push(issue(file, 'emits', 'operation_kind', 'Only command operations may emit outbox events.'))
+    if (!Array.isArray(value.emits) || value.emits.length < 1 || value.emits.length > 16) issues.push(issue(file, 'emits', 'array_size', 'Emits must contain between 1 and 16 event declarations.'))
+    else {
+      const names = new Set()
+      value.emits.forEach((emit, index) => {
+        const base = `emits.${index}`
+        if (!isRecord(emit)) { issues.push(issue(file, base, 'object', 'Emit declaration must be an object.')); return }
+        unknownKeys(emit, operationEmitKeys, file, base, issues)
+        if (typeof emit.event !== 'string' || !commandPattern.test(emit.event)) issues.push(issue(file, `${base}.event`, 'identifier', 'Emitted event must be a PascalCase identifier.'))
+        if (!['realtime', 'reporting', 'archive'].includes(emit.target)) issues.push(issue(file, `${base}.target`, 'event_target', 'Event target must be realtime, reporting, or archive.'))
+        if (!['segmented', 'immediate'].includes(emit.durability)) issues.push(issue(file, `${base}.durability`, 'durability', 'Outbox durability must be segmented or immediate.'))
+        if (!Array.isArray(emit.fields) || emit.fields.length < 1 || emit.fields.length > 32 || emit.fields.some((field) => typeof field !== 'string' || !fieldNamePattern.test(field))) issues.push(issue(file, `${base}.fields`, 'event_fields', 'Event fields must contain 1–32 lower-camel-case result field names.'))
+        else {
+          for (const field of emit.fields) if (!isRecord(value.result?.fields) || !Object.hasOwn(value.result.fields, field)) issues.push(issue(file, `${base}.fields`, 'result_reference', `Emitted field "${field}" must exist in result.fields.`))
+          for (const duplicate of duplicateStrings(emit.fields)) issues.push(issue(file, `${base}.fields`, 'duplicate', `Emitted field "${duplicate}" is duplicated.`))
+        }
+        if (emit.target === 'reporting') {
+          if (!isRecord(emit.reporting)) issues.push(issue(file, `${base}.reporting`, 'object', 'Reporting target requires projection metadata.'))
+          else {
+            unknownKeys(emit.reporting, operationReportingKeys, file, `${base}.reporting`, issues)
+            if (emit.reporting.keyField !== '$partitionKey' && (typeof emit.reporting.keyField !== 'string' || !emit.fields?.includes(emit.reporting.keyField))) issues.push(issue(file, `${base}.reporting.keyField`, 'result_reference', 'Reporting keyField must be $partitionKey or an emitted result field.'))
+            if (emit.reporting.sequenceField !== undefined && (typeof emit.reporting.sequenceField !== 'string' || !emit.fields?.includes(emit.reporting.sequenceField) || value.result?.fields?.[emit.reporting.sequenceField]?.type !== 'integer')) issues.push(issue(file, `${base}.reporting.sequenceField`, 'result_reference', 'Reporting sequenceField must be an emitted integer result field.'))
+            if (!Array.isArray(emit.reporting.dimensions) || emit.reporting.dimensions.length > 8 || emit.reporting.dimensions.some((field) => typeof field !== 'string' || !emit.fields?.includes(field))) issues.push(issue(file, `${base}.reporting.dimensions`, 'result_reference', 'Reporting dimensions must contain at most eight emitted result fields.'))
+            if (!Array.isArray(emit.reporting.measures) || emit.reporting.measures.length < 1 || emit.reporting.measures.length > 8) issues.push(issue(file, `${base}.reporting.measures`, 'array_size', 'Reporting measures must contain between one and eight declarations.'))
+            else emit.reporting.measures.forEach((measure, measureIndex) => {
+              const measureBase = `${base}.reporting.measures.${measureIndex}`
+              if (!isRecord(measure)) { issues.push(issue(file, measureBase, 'object', 'Reporting measure must be an object.')); return }
+              unknownKeys(measure, operationMeasureKeys, file, measureBase, issues)
+              if (typeof measure.field !== 'string' || !emit.fields?.includes(measure.field) || !['integer', 'number'].includes(value.result?.fields?.[measure.field]?.type)) issues.push(issue(file, `${measureBase}.field`, 'result_reference', 'Reporting measure field must be an emitted numeric result field.'))
+              if (measure.aggregate !== 'sum') issues.push(issue(file, `${measureBase}.aggregate`, 'aggregate', 'Reporting Runtime v1 supports the sum aggregate.'))
+            })
+          }
+        } else if (emit.reporting !== undefined) issues.push(issue(file, `${base}.reporting`, 'field_dependency', 'Reporting projection metadata is allowed only for the reporting target.'))
+        if (emit.target === 'realtime') {
+          if (!isRecord(emit.realtime)) issues.push(issue(file, `${base}.realtime`, 'object', 'Realtime target requires room routing metadata.'))
+          else {
+            unknownKeys(emit.realtime, operationRealtimeKeys, file, `${base}.realtime`, issues)
+            if (typeof emit.realtime.roomClass !== 'string' || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(emit.realtime.roomClass)) issues.push(issue(file, `${base}.realtime.roomClass`, 'identifier', 'Realtime roomClass must be a lowercase identifier.'))
+            if (emit.realtime.roomField !== '$partitionKey' && (typeof emit.realtime.roomField !== 'string' || !emit.fields?.includes(emit.realtime.roomField))) issues.push(issue(file, `${base}.realtime.roomField`, 'result_reference', 'Realtime roomField must be $partitionKey or an emitted result field.'))
+          }
+        } else if (emit.realtime !== undefined) issues.push(issue(file, `${base}.realtime`, 'field_dependency', 'Realtime routing metadata is allowed only for the realtime target.'))
+        const identity = `${emit.target}:${emit.event}`
+        if (names.has(identity)) issues.push(issue(file, 'emits', 'duplicate', `Emit target and event "${identity}" is duplicated.`))
+        names.add(identity)
+      })
+    }
   }
   if (!isRecord(value.input)) {
     issues.push(issue(file, 'input', 'object', 'Operation input must be an object, even when it has no fields.'))

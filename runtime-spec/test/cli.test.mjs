@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
@@ -27,6 +27,19 @@ test('CLI initializes, validates, plans, applies, reports status, migrations, an
   }
   const lock = JSON.parse(await readFile(path.join(root, '.lacify', 'lock.json'), 'utf8'))
   assert.match(lock.projectFingerprint, /^[a-f0-9]{64}$/)
+})
+
+test('realtime validate and plan are deterministic and read-only', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lacify-realtime-cli-'))
+  await mkdir(path.join(root, 'rooms'))
+  await writeFile(path.join(root, 'lacify.realtime.yaml'), 'version: lacify.dev/realtime/v1\nproject: realtime-cli\nruntime: realtime\nrooms:\n  - ./rooms/chat.room.yaml\n')
+  await writeFile(path.join(root, 'rooms', 'chat.room.yaml'), 'version: lacify.dev/room/v1\nname: Chat\npartitionBy: roomId\ncapabilities:\n  - events\n  - presence\n  - history\nstorage: sqlite\nretention:\n  historySeconds: 86400\n  maxEvents: 100000\nlimits:\n  maxFrameBytes: 65536\n  maxConnections: 1000\n  maxPresenceBytes: 4096\n  maxDocumentUpdateBytes: 262144\nbudget:\n  maxPersistentEventsPerUtcDay: 50000\nauth:\n  mode: token\n  allowedOrigins:\n    - https://app.example.com\n')
+  const validated = capture()
+  assert.equal(await runCli(['realtime', 'validate', '--json'], validated.io, root), 0)
+  const planned = capture()
+  assert.equal(await runCli(['realtime', 'plan', '--json'], planned.io, root), 0)
+  assert.equal(JSON.parse(validated.value()).fingerprint, JSON.parse(planned.value()).fingerprint)
+  assert.equal(JSON.parse(planned.value()).remoteMutation, false)
 })
 
 test('plan is read-only and apply requires explicit approval', async () => {

@@ -1,0 +1,5 @@
+version: lacify.dev/realtime/v1
+project: collaboration
+runtime: realtime
+rooms:
+  - ./rooms/chat.room.yaml

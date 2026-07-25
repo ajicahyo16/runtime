@@ -27,6 +27,7 @@ const contract = {
         total: { type: 'integer', required: true },
       },
       result: { mode: 'one', fields: { id: { type: 'string' }, total: { type: 'integer' } } },
+      emits: [{ event: 'OrderPlaced', target: 'realtime', durability: 'segmented', fields: ['id', 'total'], realtime: { roomClass: 'store', roomField: '$partitionKey' } }],
     },
     sql: 'INSERT INTO orders (id, outlet_id, total) VALUES (:orderId, :partitionId, :total) RETURNING id, total;',
   }, {
@@ -128,7 +129,7 @@ function sqliteStorage() {
   }
 }
 
-async function runtime() {
+async function runtime({ sink, replaySecret } = {}) {
   const release = await compileRelease('operation-runtime-execution', [contract])
   const executable = release.artifact['worker.js']
     .replace("import { DurableObject } from 'cloudflare:workers';", '')
@@ -138,7 +139,16 @@ async function runtime() {
   const DurableObjectBase = class { constructor(ctx, env) { this.ctx = ctx; this.env = env } }
   const { Actor, worker } = new Function('DurableObject', executable)(DurableObjectBase)
   const backing = sqliteStorage()
-  return { actor: new Actor({ storage: backing.storage }, {}), database: backing.database, worker }
+  const pending = []
+  const ctx = { storage: backing.storage, waitUntil(promise) { pending.push(Promise.resolve(promise)) } }
+  const env = { ...(sink ? { LACIFY_EVENT_SINK: sink, LACIFY_EVENT_ROUTER_SECRET: 'test-router-secret-with-sufficient-length' } : {}), ...(replaySecret ? { LACIFY_OUTBOX_REPLAY_SECRET: replaySecret } : {}) }
+  return {
+    actor: new Actor(ctx, env),
+    database: backing.database,
+    worker,
+    drain: async () => Promise.all(pending.splice(0)),
+    restart: (nextEnv = env) => new Actor(ctx, nextEnv),
+  }
 }
 
 function command(actor, operation, input, key = null, partition = 'outlet-a') {
@@ -239,10 +249,13 @@ test('command SQL, lifecycle, summary, and idempotency receipt commit atomically
   assert.equal(database.prepare('SELECT COUNT(*) AS count FROM orders').get().count, 1)
   assert.equal(database.prepare('SELECT version FROM lacify_aggregate_state WHERE partition_id = ?').get('outlet-a').version, 1)
   assert.equal(database.prepare('SELECT command_count AS count FROM lacify_daily_summary').get().count, 1)
+  const outbox = database.prepare('SELECT event_name, target, durability, payload, status FROM _lacify_outbox').get()
+  assert.deepEqual({ ...outbox, payload: JSON.parse(outbox.payload) }, { event_name: 'OrderPlaced', target: 'realtime', durability: 'segmented', payload: { id: 'order-1', total: 1250 }, status: 'pending' })
 
   const replay = await command(actor, 'PlaceOrder', { total: 1250, orderId: 'order-1' }, 'request-1')
   assert.equal((await replay.json()).replayed, true)
   assert.equal(database.prepare('SELECT COUNT(*) AS count FROM orders').get().count, 1)
+  assert.equal(database.prepare('SELECT COUNT(*) AS count FROM _lacify_outbox').get().count, 1)
   assert.equal(database.prepare('SELECT version FROM lacify_aggregate_state WHERE partition_id = ?').get('outlet-a').version, 1)
 
   const conflict = await command(actor, 'PlaceOrder', { orderId: 'order-2', total: 900 }, 'request-1')
@@ -271,7 +284,93 @@ test('result contract failure rolls back business SQL and lifecycle state', asyn
   assert.equal(database.prepare('SELECT COUNT(*) AS count FROM orders').get().count, 0)
   assert.equal(database.prepare('SELECT COUNT(*) AS count FROM lacify_aggregate_state').get().count, 0)
   assert.equal(database.prepare('SELECT COUNT(*) AS count FROM _lacify_operation_receipts').get().count, 0)
+  assert.equal(database.prepare('SELECT COUNT(*) AS count FROM _lacify_outbox').get().count, 0)
   database.close()
+})
+
+test('transactional outbox retries bounded delivery and treats sink conflict as idempotent success', async () => {
+  const received = []
+  const signed = []
+  let calls = 0
+  const sink = {
+    async fetch(_url, init) {
+      calls += 1
+      received.push(JSON.parse(init.body))
+      signed.push({ body: init.body, timestamp: init.headers['x-lacify-event-timestamp'], signature: init.headers['x-lacify-event-signature'] })
+      if (calls === 1) throw new Error('network unavailable')
+      return new Response(null, { status: 409 })
+    },
+  }
+  const { actor, database, drain } = await runtime({ sink })
+  assert.equal((await command(actor, 'PlaceOrder', { orderId: 'retry-order', total: 400 }, 'retry-request')).status, 200)
+  await drain()
+  let row = database.prepare('SELECT status, attempts, last_error FROM _lacify_outbox').get()
+  assert.deepEqual({ ...row }, { status: 'pending', attempts: 1, last_error: 'delivery_failed' })
+  database.prepare('UPDATE _lacify_outbox SET available_at = 0').run()
+  const dispatched = await actor.fetch(new Request('https://lacify.internal/__lacify/outbox/dispatch', { method: 'POST' }))
+  assert.equal((await dispatched.json()).delivered, 1)
+  row = database.prepare('SELECT status, attempts, last_error FROM _lacify_outbox').get()
+  assert.deepEqual({ ...row }, { status: 'delivered', attempts: 2, last_error: null })
+  assert.equal(received.length, 2)
+  assert.equal(received[0].eventId, received[1].eventId)
+  assert.deepEqual(received[0].payload, { id: 'retry-order', total: 400 })
+  assert.deepEqual(received[0].routing, { roomClass: 'store', room: 'outlet-a' })
+  for (const request of signed) {
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode('test-router-secret-with-sufficient-length'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+    const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${request.timestamp}.${request.body}`))
+    const expected = [...new Uint8Array(signature)].map((value) => value.toString(16).padStart(2, '0')).join('')
+    assert.equal(request.signature, expected)
+  }
+  database.close()
+})
+
+test('poison outbox events dead-letter after bounded attempts and require exact replay approval', async () => {
+  const sink = { async fetch() { return new Response(null, { status: 503 }) } }
+  const { actor, database, drain } = await runtime({ sink, replaySecret: 'approved-replay-secret' })
+  await command(actor, 'PlaceOrder', { orderId: 'poison-order', total: 500 }, 'poison-request')
+  await drain()
+  for (let attempt = 1; attempt < 8; attempt += 1) {
+    database.prepare('UPDATE _lacify_outbox SET available_at = 0').run()
+    await actor.fetch(new Request('https://lacify.internal/__lacify/outbox/dispatch', { method: 'POST' }))
+  }
+  const dead = database.prepare('SELECT event_id, status, attempts, last_error FROM _lacify_outbox').get()
+  assert.deepEqual({ status: dead.status, attempts: dead.attempts, last_error: dead.last_error }, { status: 'dead_letter', attempts: 8, last_error: 'sink_503' })
+  const denied = await actor.fetch(new Request('https://lacify.internal/__lacify/outbox/replay', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-lacify-outbox-approval': 'wrong' },
+    body: JSON.stringify({ eventId: dead.event_id }),
+  }))
+  assert.equal(denied.status, 403)
+  const approved = await actor.fetch(new Request('https://lacify.internal/__lacify/outbox/replay', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-lacify-outbox-approval': 'approved-replay-secret' },
+    body: JSON.stringify({ eventId: dead.event_id }),
+  }))
+  assert.equal((await approved.json()).replayScheduled, true)
+  assert.deepEqual({ ...database.prepare('SELECT status, attempts, last_error FROM _lacify_outbox').get() }, { status: 'pending', attempts: 0, last_error: null })
+  database.close()
+})
+
+test('pending outbox survives Actor restart and dispatches without replaying the business command', async () => {
+  const runtimeState = await runtime()
+  await command(runtimeState.actor, 'PlaceOrder', { orderId: 'restart-order', total: 700 }, 'restart-request')
+  assert.equal(runtimeState.database.prepare("SELECT COUNT(*) AS count FROM _lacify_outbox WHERE status = 'pending'").get().count, 1)
+  const received = []
+  const restarted = runtimeState.restart({
+    LACIFY_EVENT_ROUTER_SECRET: 'test-router-secret-with-sufficient-length',
+    LACIFY_EVENT_SINK: {
+      async fetch(_url, init) {
+        received.push(JSON.parse(init.body))
+        return new Response(null, { status: 202 })
+      },
+    },
+  })
+  const response = await restarted.fetch(new Request('https://lacify.internal/__lacify/outbox/dispatch', { method: 'POST' }))
+  assert.equal((await response.json()).delivered, 1)
+  assert.equal(received.length, 1)
+  assert.equal(runtimeState.database.prepare('SELECT COUNT(*) AS count FROM orders').get().count, 1)
+  assert.equal(runtimeState.database.prepare("SELECT COUNT(*) AS count FROM _lacify_outbox WHERE status = 'delivered'").get().count, 1)
+  runtimeState.database.close()
 })
 
 test('concurrent commands serialize and queries remain partition-scoped', async () => {

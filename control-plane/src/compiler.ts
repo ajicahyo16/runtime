@@ -20,6 +20,22 @@ export interface RuntimeContract {
         fields?: Record<string, { type: 'string' | 'integer' | 'number' | 'boolean'; nullable?: boolean }>
         pagination?: { cursorField: string; defaultPageSize: number; maxPageSize: number }
       }
+      emits?: Array<{
+        event: string
+        target: 'realtime' | 'reporting' | 'archive'
+        durability: 'segmented' | 'immediate'
+        fields: string[]
+        reporting?: {
+          keyField: string
+          sequenceField?: string
+          dimensions: string[]
+          measures: Array<{ field: string; aggregate: 'sum' }>
+        }
+        realtime?: {
+          roomClass: string
+          roomField: string
+        }
+      }>
     }
     sql: string
     checksum?: string
@@ -81,6 +97,7 @@ function compiledOperations(contract: SourceContract) {
       kind: definition.kind,
       input: definition.input,
       result: definition.result,
+      emits: definition.emits || [],
       sql: statement,
       parameters,
     }
@@ -105,6 +122,8 @@ function runtimeClass(contract: SourceContract) {
   return `export class ${contract.aggregateType}DO extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
+    this.ctx = ctx;
+    this.env = env;
     this.storage = ctx.storage;
     this.sql = ctx.storage.sql;
     this.sql.exec(\`CREATE TABLE IF NOT EXISTS _lacify_migrations (migration_id TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL);\`);
@@ -116,10 +135,71 @@ ${tables}
     this.sql.exec(\`CREATE TABLE IF NOT EXISTS _lacify_operation_receipts (operation TEXT NOT NULL, idempotency_key TEXT NOT NULL, input_hash TEXT NOT NULL, response TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (operation, idempotency_key));\`);
     this.sql.exec(\`CREATE TABLE IF NOT EXISTS _lacify_operation_rate_limits (caller_identity_hash TEXT NOT NULL, operation TEXT NOT NULL, window_started_at INTEGER NOT NULL, request_count INTEGER NOT NULL, PRIMARY KEY (caller_identity_hash, operation, window_started_at));\`);
     this.sql.exec(\`CREATE TABLE IF NOT EXISTS _lacify_operation_audit (id TEXT PRIMARY KEY, caller_identity_hash TEXT NOT NULL, operation TEXT NOT NULL, kind TEXT NOT NULL, outcome TEXT NOT NULL, status_code INTEGER NOT NULL, occurred_at INTEGER NOT NULL);\`);
+    this.sql.exec(\`CREATE TABLE IF NOT EXISTS _lacify_outbox (event_id TEXT PRIMARY KEY, operation TEXT NOT NULL, partition_key TEXT NOT NULL, event_name TEXT NOT NULL, target TEXT NOT NULL, durability TEXT NOT NULL, payload TEXT NOT NULL, projection TEXT, routing TEXT, status TEXT NOT NULL CHECK (status IN ('pending', 'delivered', 'dead_letter')), attempts INTEGER NOT NULL DEFAULT 0, available_at INTEGER NOT NULL, last_error TEXT, created_at INTEGER NOT NULL, delivered_at INTEGER);\`);
+    if (this.env.LACIFY_EVENT_SINK && typeof this.ctx.blockConcurrencyWhile === 'function') this.ctx.blockConcurrencyWhile(() => this.scheduleOutbox());
+  }
+
+  async scheduleOutbox() {
+    if (!this.env.LACIFY_EVENT_SINK || !this.env.LACIFY_EVENT_ROUTER_SECRET || typeof this.storage.setAlarm !== 'function') return;
+    const pending = [...this.sql.exec("SELECT MIN(available_at) AS available_at FROM _lacify_outbox WHERE status = 'pending'")][0];
+    if (pending?.available_at !== null && pending?.available_at !== undefined) await this.storage.setAlarm(Math.max(Date.now(), Number(pending.available_at)));
+  }
+
+  async dispatchOutbox() {
+    if (!this.env.LACIFY_EVENT_SINK || !this.env.LACIFY_EVENT_ROUTER_SECRET) return { delivered: 0, retried: 0, deadLettered: 0 };
+    const rows = [...this.sql.exec("SELECT event_id, operation, partition_key, event_name, target, durability, payload, projection, routing, attempts, created_at FROM _lacify_outbox WHERE status = 'pending' AND available_at <= ? ORDER BY created_at, event_id LIMIT 16", Date.now())];
+    let delivered = 0;
+    let retried = 0;
+    let deadLettered = 0;
+    for (const row of rows) {
+      try {
+        const envelope = JSON.stringify({ version: 'lacify.dev/event/v1', eventId: row.event_id, operation: row.operation, partitionKey: row.partition_key, event: row.event_name, target: row.target, durability: row.durability, occurredAt: Number(row.created_at), payload: JSON.parse(row.payload), ...(row.projection ? { projection: JSON.parse(row.projection) } : {}), ...(row.routing ? { routing: JSON.parse(row.routing) } : {}) });
+        const timestamp = String(Date.now());
+        const signingKey = await crypto.subtle.importKey('raw', new TextEncoder().encode(this.env.LACIFY_EVENT_ROUTER_SECRET || ''), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const signatureBytes = await crypto.subtle.sign('HMAC', signingKey, new TextEncoder().encode(timestamp + '.' + envelope));
+        const signature = [...new Uint8Array(signatureBytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+        const response = await this.env.LACIFY_EVENT_SINK.fetch('https://lacify.internal/v1/events', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-lacify-event-id': row.event_id, 'x-lacify-event-timestamp': timestamp, 'x-lacify-event-signature': signature },
+          body: envelope,
+        });
+        if (!response.ok && response.status !== 409) throw new Error('sink_' + response.status);
+        this.sql.exec("UPDATE _lacify_outbox SET status = 'delivered', attempts = attempts + 1, last_error = NULL, delivered_at = ? WHERE event_id = ? AND status = 'pending'", Date.now(), row.event_id);
+        delivered += 1;
+      } catch (error) {
+        const attempts = Number(row.attempts) + 1;
+        const code = /^sink_[0-9]{3}$/.test(error?.message || '') ? error.message : 'delivery_failed';
+        if (attempts >= 8) {
+          this.sql.exec("UPDATE _lacify_outbox SET status = 'dead_letter', attempts = ?, last_error = ? WHERE event_id = ? AND status = 'pending'", attempts, code, row.event_id);
+          deadLettered += 1;
+        } else {
+          const delay = Math.min(300000, 1000 * (2 ** Math.min(attempts - 1, 8)));
+          this.sql.exec("UPDATE _lacify_outbox SET attempts = ?, available_at = ?, last_error = ? WHERE event_id = ? AND status = 'pending'", attempts, Date.now() + delay, code, row.event_id);
+          retried += 1;
+        }
+      }
+    }
+    await this.scheduleOutbox();
+    return { delivered, retried, deadLettered };
+  }
+
+  async alarm() {
+    await this.dispatchOutbox();
   }
 
   async fetch(request) {
     const url = new URL(request.url);
+    if (url.pathname === '/__lacify/outbox/dispatch' && request.method === 'POST') return Response.json({ success: true, ...(await this.dispatchOutbox()) });
+    if (url.pathname === '/__lacify/outbox/replay' && request.method === 'POST') {
+      if (!this.env.LACIFY_OUTBOX_REPLAY_SECRET || request.headers.get('x-lacify-outbox-approval') !== this.env.LACIFY_OUTBOX_REPLAY_SECRET) return Response.json({ success: false, error: { code: 'approval_required', message: 'Exact outbox replay approval is required.' } }, { status: 403 });
+      const body = await request.json().catch(() => ({}));
+      if (typeof body.eventId !== 'string' || !/^[A-Za-z0-9._:-]{1,160}$/.test(body.eventId)) return Response.json({ success: false, error: { code: 'invalid_event_id', message: 'A valid dead-letter event ID is required.' } }, { status: 400 });
+      const deadLetter = [...this.sql.exec("SELECT event_id FROM _lacify_outbox WHERE event_id = ? AND status = 'dead_letter'", body.eventId)][0];
+      if (!deadLetter) return Response.json({ success: false, error: { code: 'dead_letter_not_found', message: 'Dead-letter event was not found.' } }, { status: 404 });
+      this.sql.exec("UPDATE _lacify_outbox SET status = 'pending', attempts = 0, available_at = ?, last_error = NULL WHERE event_id = ? AND status = 'dead_letter'", Date.now(), body.eventId);
+      await this.scheduleOutbox();
+      return Response.json({ success: true, eventId: body.eventId, replayScheduled: true });
+    }
     let auditContext = null;
     const recordAudit = (outcome, statusCode) => {
       if (!auditContext) return;
@@ -167,7 +247,8 @@ ${tables}
     if (url.pathname === '/__lacify/health' && request.method === 'GET') {
       try {
         [...this.sql.exec('SELECT 1 AS ok')];
-        return Response.json({ ok: true, aggregateType: '${contract.aggregateType}', durableObject: true, sqlite: true, storageBytes: this.sql.databaseSize, tables: [${tableStats}] });
+        const outbox = [...this.sql.exec("SELECT SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending, SUM(CASE WHEN status = 'dead_letter' THEN 1 ELSE 0 END) AS dead_letter, MIN(CASE WHEN status = 'pending' THEN created_at END) AS oldest_pending_at FROM _lacify_outbox")][0];
+        return Response.json({ ok: true, aggregateType: '${contract.aggregateType}', durableObject: true, sqlite: true, storageBytes: this.sql.databaseSize, tables: [${tableStats}], outbox: { pending: Number(outbox?.pending || 0), deadLetter: Number(outbox?.dead_letter || 0), oldestPendingAt: outbox?.oldest_pending_at === null || outbox?.oldest_pending_at === undefined ? null : Number(outbox.oldest_pending_at) } });
       } catch {
         return Response.json({ ok: false, aggregateType: '${contract.aggregateType}', durableObject: true, sqlite: false }, { status: 503 });
       }
@@ -293,12 +374,25 @@ ${tables}
         this.sql.exec('INSERT INTO lacify_lifecycle_events (id, command, state, phases, payload, occurred_at) VALUES (?, ?, ?, ?, ?, ?)', eventId, command, nextState, JSON.stringify(phases), payload, now);
         this.sql.exec("INSERT INTO lacify_daily_summary (day, command_count, last_state, updated_at) VALUES (date(?, 'unixepoch'), 1, ?, ?) ON CONFLICT(day) DO UPDATE SET command_count = command_count + 1, last_state = excluded.last_state, updated_at = excluded.updated_at", Math.floor(now / 1000), nextState, now);
         result = { success: true, command, partitionId, state: nextState, version, lifecycle: phases, eventId, ...(operation ? { data: operationData } : {}) };
+        if (operation?.emits?.length) {
+          operation.emits.forEach((emit, index) => {
+            const emittedPayload = {};
+            for (const field of emit.fields) emittedPayload[field] = operationData?.[field] ?? null;
+            const projection = emit.reporting ? { ...emit.reporting, key: emit.reporting.keyField === '$partitionKey' ? partitionId : emittedPayload[emit.reporting.keyField] } : null;
+            const routing = emit.realtime ? { roomClass: emit.realtime.roomClass, room: emit.realtime.roomField === '$partitionKey' ? partitionId : emittedPayload[emit.realtime.roomField] } : null;
+            this.sql.exec("INSERT INTO _lacify_outbox (event_id, operation, partition_key, event_name, target, durability, payload, projection, routing, status, attempts, available_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)", eventId + ':' + index, operation.name, partitionId, emit.event, emit.target, emit.durability, JSON.stringify(emittedPayload), projection ? JSON.stringify(projection) : null, routing ? JSON.stringify(routing) : null, now, now);
+          });
+        }
         if (operation && idempotencyKey) this.sql.exec('INSERT INTO _lacify_operation_receipts (operation, idempotency_key, input_hash, response, created_at) VALUES (?, ?, ?, ?, ?)', operation.name, idempotencyKey, operationContext.inputHash, JSON.stringify(result), now);
       });
     } catch (error) {
       return failure(error.lacifySafe ? error.code : 'operation_execution_failed', error.lacifySafe ? error.message : 'Operation execution failed.', error.lacifySafe ? error.status : 409);
     }
     const response = Response.json(result);
+    if (operation?.emits?.length) {
+      if (typeof this.ctx.waitUntil === 'function') this.ctx.waitUntil(this.dispatchOutbox());
+      else await this.scheduleOutbox();
+    }
     response.headers.set('x-lacify-storage-bytes', String(this.sql.databaseSize));
     response.headers.set('x-lacify-table-stats', encodeURIComponent(JSON.stringify([${tableStats}])));
     recordAudit('success', 200);
@@ -309,6 +403,7 @@ ${tables}
 }
 
 function workerSource(contracts: SourceContract[]) {
+  const hasEventRouter = contracts.some((contract) => (contract.operations || []).some(({ definition }) => (definition.emits || []).length > 0))
   const healthProbes = contracts.map((contract) => `      (async () => {
         const aggregateType = '${contract.aggregateType}';
         const startedAt = Date.now();
@@ -316,12 +411,21 @@ function workerSource(contracts: SourceContract[]) {
           const response = await env.${contract.aggregateType.toUpperCase()}_DO.get(env.${contract.aggregateType.toUpperCase()}_DO.idFromName('__lacify_health__')).fetch('https://lacify.internal/__lacify/health');
           const payload = await response.json().catch(() => null);
           layers.push({ layer: 'durable_object', aggregateType, ok: response.ok && payload?.durableObject === true, durationMs: Date.now() - startedAt });
-          layers.push({ layer: 'sqlite', aggregateType, ok: response.ok && payload?.sqlite === true, durationMs: Date.now() - startedAt, storageBytes: payload?.storageBytes, tables: payload?.tables });
+          layers.push({ layer: 'sqlite', aggregateType, ok: response.ok && payload?.sqlite === true, durationMs: Date.now() - startedAt, storageBytes: payload?.storageBytes, tables: payload?.tables, outbox: payload?.outbox });
         } catch {
           layers.push({ layer: 'durable_object', aggregateType, ok: false, durationMs: Date.now() - startedAt });
           layers.push({ layer: 'sqlite', aggregateType, ok: false, durationMs: Date.now() - startedAt });
         }
-      })()`).join(',\n')
+      })()`).concat(hasEventRouter ? [`      (async () => {
+        const startedAt = Date.now();
+        try {
+          const response = await env.LACIFY_EVENT_SINK.fetch('https://lacify.internal/__lacify/router/health?deep=1');
+          const payload = await response.json().catch(() => null);
+          layers.push({ layer: 'event_router', ok: response.ok && payload?.service === 'lacify-event-router', durationMs: Date.now() - startedAt, targets: payload?.configuredTargets });
+        } catch {
+          layers.push({ layer: 'event_router', ok: false, durationMs: Date.now() - startedAt });
+        }
+      })()`] : []).join(',\n')
   const routes = contracts.map((contract) => {
     const path = `${contract.aggregateType.toLowerCase()}s`
     const queryOperations = (contract.operations || []).filter(({ definition }) => definition.kind === 'query').map(({ definition }) => definition.name)
@@ -518,6 +622,330 @@ ${routes}
 };
 
 ${contracts.map(runtimeClass).join('\n')}
+`
+}
+
+function eventRouterWorkerSource(projectId: string, configuredTargets: string[]) {
+  return `import { DurableObject } from 'cloudflare:workers';
+
+const targets = new Set(['realtime', 'reporting', 'archive']);
+const configuredTargets = ${JSON.stringify(configuredTargets)};
+const maxEnvelopeBytes = 262144;
+const maxPendingPerShard = 256;
+const recoveryBatchSize = 16;
+
+function errorResponse(code, message, status) {
+  return Response.json({ success: false, error: { code, message } }, { status });
+}
+
+async function hmac(secret, value) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const bytes = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function equalHex(left, right) {
+  if (typeof left !== 'string' || typeof right !== 'string' || left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  return difference === 0;
+}
+
+export class EventRouterActor extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.ctx = ctx;
+    this.env = env;
+    this.sql = ctx.storage.sql;
+    this.inflight = new Map();
+    this.sql.exec("CREATE TABLE IF NOT EXISTS _lacify_router_deliveries (event_id TEXT PRIMARY KEY, target TEXT NOT NULL, checksum TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('pending', 'delivered')), attempts INTEGER NOT NULL, last_error TEXT, created_at INTEGER NOT NULL, delivered_at INTEGER)");
+    const columns = new Set([...this.sql.exec("PRAGMA table_info(_lacify_router_deliveries)")].map((row) => row.name));
+    if (!columns.has('body')) this.sql.exec("ALTER TABLE _lacify_router_deliveries ADD COLUMN body TEXT");
+    if (!columns.has('next_attempt_at')) this.sql.exec("ALTER TABLE _lacify_router_deliveries ADD COLUMN next_attempt_at INTEGER");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS _lacify_router_circuits (target TEXT PRIMARY KEY, consecutive_failures INTEGER NOT NULL, open_until INTEGER NOT NULL, updated_at INTEGER NOT NULL)");
+    if (typeof this.ctx.blockConcurrencyWhile === 'function') this.ctx.blockConcurrencyWhile(() => this.scheduleRecovery());
+  }
+
+  async scheduleRecovery() {
+    if (typeof this.ctx.storage.setAlarm !== 'function') return;
+    const pending = [...this.sql.exec("SELECT MIN(next_attempt_at) AS next_attempt_at FROM _lacify_router_deliveries WHERE status = 'pending' AND next_attempt_at IS NOT NULL")][0];
+    if (pending?.next_attempt_at !== null && pending?.next_attempt_at !== undefined) await this.ctx.storage.setAlarm(Math.max(Date.now(), Number(pending.next_attempt_at)));
+  }
+
+  circuit(target) {
+    return [...this.sql.exec("SELECT consecutive_failures, open_until FROM _lacify_router_circuits WHERE target = ?", target)][0] || { consecutive_failures: 0, open_until: 0 };
+  }
+
+  recordSuccess(target) {
+    this.sql.exec("INSERT INTO _lacify_router_circuits (target, consecutive_failures, open_until, updated_at) VALUES (?, 0, 0, ?) ON CONFLICT(target) DO UPDATE SET consecutive_failures = 0, open_until = 0, updated_at = excluded.updated_at", target, Date.now());
+  }
+
+  recordFailure(target) {
+    const current = this.circuit(target);
+    const failures = Number(current.consecutive_failures || 0) + 1;
+    const openUntil = failures >= 3 ? Date.now() + Math.min(300000, 10000 * (2 ** Math.min(failures - 3, 5))) : 0;
+    this.sql.exec("INSERT INTO _lacify_router_circuits (target, consecutive_failures, open_until, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(target) DO UPDATE SET consecutive_failures = excluded.consecutive_failures, open_until = excluded.open_until, updated_at = excluded.updated_at", target, failures, openUntil, Date.now());
+    return openUntil;
+  }
+
+  async deliver(envelope, body) {
+    const existing = [...this.sql.exec("SELECT checksum, status FROM _lacify_router_deliveries WHERE event_id = ?", envelope.eventId)][0];
+    const checksumBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body));
+    const checksum = [...new Uint8Array(checksumBytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    if (existing && existing.checksum !== checksum) return errorResponse('event_conflict', 'Event ID was reused with different content.', 409);
+    if (existing?.status === 'delivered') return Response.json({ success: true, eventId: envelope.eventId, target: envelope.target, duplicate: true }, { status: 409 });
+    if (!existing) {
+      const pressure = Number([...this.sql.exec("SELECT COUNT(*) AS count FROM _lacify_router_deliveries WHERE status = 'pending'")][0]?.count || 0);
+      if (pressure >= maxPendingPerShard) return errorResponse('router_backpressure', 'Event router shard reached its bounded pending capacity.', 429);
+    }
+    const active = this.inflight.get(envelope.eventId);
+    if (active) return active;
+    const delivery = this.performDelivery(envelope, body, checksum).finally(() => this.inflight.delete(envelope.eventId));
+    this.inflight.set(envelope.eventId, delivery);
+    return delivery;
+  }
+
+  async performDelivery(envelope, body, checksum) {
+    this.sql.exec("INSERT OR IGNORE INTO _lacify_router_deliveries (event_id, target, checksum, status, attempts, body, next_attempt_at, created_at) VALUES (?, ?, ?, 'pending', 0, ?, ?, ?)", envelope.eventId, envelope.target, checksum, body, Date.now(), Date.now());
+    const circuit = this.circuit(envelope.target);
+    if (Number(circuit.open_until || 0) > Date.now()) {
+      this.sql.exec("UPDATE _lacify_router_deliveries SET next_attempt_at = ?, last_error = 'circuit_open' WHERE event_id = ? AND status = 'pending'", Number(circuit.open_until), envelope.eventId);
+      await this.scheduleRecovery();
+      return errorResponse('target_circuit_open', 'Event target circuit is temporarily open.', 503);
+    }
+    try {
+      let response;
+      if (envelope.target === 'reporting') {
+        if (!this.env.REPORTING_SINK || !this.env.LACIFY_REPORTING_SINK_SECRET) throw new Error('reporting_unavailable');
+        response = await this.env.REPORTING_SINK.fetch('https://lacify.internal/v1/events', { method: 'POST', headers: { 'content-type': 'application/json', 'x-lacify-event-sink-secret': this.env.LACIFY_REPORTING_SINK_SECRET }, body });
+      } else if (envelope.target === 'realtime') {
+        if (!this.env.REALTIME_SINK || !this.env.LACIFY_REALTIME_SINK_SECRET) throw new Error('realtime_unavailable');
+        response = await this.env.REALTIME_SINK.fetch('https://lacify.internal/v1/internal/events', { method: 'POST', headers: { 'content-type': 'application/json', 'x-lacify-event-sink-secret': this.env.LACIFY_REALTIME_SINK_SECRET }, body });
+      } else {
+        if (!this.env.ARCHIVE) throw new Error('archive_unavailable');
+        const day = new Date(envelope.occurredAt).toISOString().slice(0, 10);
+        await this.env.ARCHIVE.put(['events', ${JSON.stringify(projectId)}, this.env.LACIFY_ENVIRONMENT || 'development', day, envelope.eventId + '.json'].join('/'), body, { httpMetadata: { contentType: 'application/json' } });
+        response = new Response(null, { status: 202 });
+      }
+      if (!response.ok && response.status !== 409) throw new Error(envelope.target + '_' + response.status);
+      this.sql.exec("UPDATE _lacify_router_deliveries SET status = 'delivered', attempts = attempts + 1, body = NULL, next_attempt_at = NULL, last_error = NULL, delivered_at = ? WHERE event_id = ?", Date.now(), envelope.eventId);
+      this.recordSuccess(envelope.target);
+      return Response.json({ success: true, eventId: envelope.eventId, target: envelope.target, duplicate: response.status === 409 }, { status: response.status === 409 ? 409 : 202 });
+    } catch (error) {
+      const code = /^[a-z]+_[0-9]{3}$/.test(error?.message || '') || /^[a-z]+_unavailable$/.test(error?.message || '') ? error.message : 'delivery_failed';
+      const row = [...this.sql.exec("SELECT attempts FROM _lacify_router_deliveries WHERE event_id = ?", envelope.eventId)][0];
+      const attempts = Number(row?.attempts || 0) + 1;
+      const retryAt = Math.max(Date.now() + Math.min(300000, 1000 * (2 ** Math.min(attempts - 1, 8))), this.recordFailure(envelope.target));
+      this.sql.exec("UPDATE _lacify_router_deliveries SET attempts = ?, body = ?, next_attempt_at = ?, last_error = ? WHERE event_id = ? AND status = 'pending'", attempts, body, retryAt, code, envelope.eventId);
+      await this.scheduleRecovery();
+      return errorResponse('target_delivery_failed', 'Event target delivery failed.', 503);
+    }
+  }
+
+  async alarm() {
+    const rows = [...this.sql.exec("SELECT event_id, checksum, body FROM _lacify_router_deliveries WHERE status = 'pending' AND next_attempt_at <= ? AND body IS NOT NULL ORDER BY next_attempt_at, event_id LIMIT ?", Date.now(), recoveryBatchSize)];
+    for (const row of rows) {
+      let envelope;
+      try { envelope = JSON.parse(row.body); } catch {
+        this.sql.exec("UPDATE _lacify_router_deliveries SET next_attempt_at = NULL, last_error = 'invalid_recovery_body' WHERE event_id = ?", row.event_id);
+        continue;
+      }
+      await this.performDelivery(envelope, row.body, row.checksum);
+    }
+    this.sql.exec("DELETE FROM _lacify_router_deliveries WHERE event_id IN (SELECT event_id FROM _lacify_router_deliveries WHERE status = 'delivered' AND delivered_at < ? ORDER BY delivered_at LIMIT 128)", Date.now() - 604800000);
+    await this.scheduleRecovery();
+  }
+
+  async fetch(request) {
+    if (new URL(request.url).pathname === '/health') {
+      const row = [...this.sql.exec("SELECT SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending, SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS delivered, SUM(attempts) AS attempts, MIN(CASE WHEN status = 'pending' THEN created_at END) AS oldest_pending_at FROM _lacify_router_deliveries")][0];
+      const circuits = [...this.sql.exec("SELECT target, consecutive_failures, open_until FROM _lacify_router_circuits WHERE consecutive_failures > 0 ORDER BY target LIMIT 3")];
+      return Response.json({ ok: Number(row?.pending || 0) < maxPendingPerShard, router: true, pending: Number(row?.pending || 0), delivered: Number(row?.delivered || 0), attempts: Number(row?.attempts || 0), oldestPendingAt: row?.oldest_pending_at === null || row?.oldest_pending_at === undefined ? null : Number(row.oldest_pending_at), capacity: maxPendingPerShard, circuits: circuits.map((item) => ({ target: item.target, failures: Number(item.consecutive_failures), openUntil: Number(item.open_until) })) });
+    }
+    const body = await request.text();
+    const envelope = JSON.parse(body);
+    return this.deliver(envelope, body);
+  }
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.pathname === '/__lacify/router/health') {
+      const bindingStatus = Object.fromEntries(configuredTargets.map((target) => [target, target === 'reporting' ? Boolean(env.REPORTING_SINK && env.LACIFY_REPORTING_SINK_SECRET) : target === 'realtime' ? Boolean(env.REALTIME_SINK && env.LACIFY_REALTIME_SINK_SECRET) : Boolean(env.ARCHIVE)]));
+      const layers = [{ layer: 'router', ok: Boolean(env.EVENT_ROUTER_DO && env.LACIFY_EVENT_ROUTER_SECRET) }, ...configuredTargets.map((target) => ({ layer: target, ok: bindingStatus[target] }))];
+      if (url.searchParams.get('deep') === '1') {
+        if (bindingStatus.reporting) {
+          const response = await env.REPORTING_SINK.fetch('https://lacify.internal/__lacify/reporting/health').catch(() => null);
+          layers.find((layer) => layer.layer === 'reporting').ok = Boolean(response?.ok);
+        }
+        if (bindingStatus.realtime) {
+          const response = await env.REALTIME_SINK.fetch('https://lacify.internal/__lacify/realtime/health').catch(() => null);
+          layers.find((layer) => layer.layer === 'realtime').ok = Boolean(response?.ok);
+        }
+      }
+      const eventId = url.searchParams.get('eventId');
+      const target = url.searchParams.get('target');
+      let shard = null;
+      if (eventId && target && targets.has(target) && /^[A-Za-z0-9._:-]{1,160}$/.test(eventId)) {
+        const shardBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(eventId));
+        const shardName = (new Uint8Array(shardBytes)[0] & 15).toString(16);
+        const actor = env.EVENT_ROUTER_DO.get(env.EVENT_ROUTER_DO.idFromName([${JSON.stringify(projectId)}, env.LACIFY_ENVIRONMENT || 'development', target, shardName].join(':')));
+        const response = await actor.fetch('https://lacify.internal/health');
+        shard = await response.json().catch(() => null);
+      }
+      return Response.json({ ok: layers.every((layer) => layer.ok) && (!shard || shard.ok), service: 'lacify-event-router', configuredTargets, layers, shard }, { status: layers.every((layer) => layer.ok) && (!shard || shard.ok) ? 200 : 503 });
+    }
+    if (url.pathname === '/__lacify/router/preflight' && request.method === 'POST') {
+      if (!env.LACIFY_PREFLIGHT_SECRET || request.headers.get('x-lacify-preflight-approval') !== env.LACIFY_PREFLIGHT_SECRET) return errorResponse('preflight_approval_required', 'Exact deployment preflight approval is required.', 403);
+      const response = await this.fetch(new Request('https://lacify.internal/__lacify/router/health?deep=1'), env);
+      const result = await response.json();
+      return Response.json({ ...result, preflight: true, remoteMutation: false }, { status: response.status });
+    }
+    if (url.pathname !== '/v1/events' || request.method !== 'POST') return errorResponse('not_found', 'Event router route not found.', 404);
+    if (!env.LACIFY_EVENT_ROUTER_SECRET) return errorResponse('router_unavailable', 'Event router authentication is unavailable.', 503);
+    const timestamp = request.headers.get('x-lacify-event-timestamp');
+    const signature = request.headers.get('x-lacify-event-signature');
+    const timestampValue = Number(timestamp);
+    if (!Number.isSafeInteger(timestampValue) || Math.abs(Date.now() - timestampValue) > 60000) return errorResponse('event_replay_window', 'Event timestamp is outside the replay window.', 401);
+    const body = await request.text();
+    if (new TextEncoder().encode(body).byteLength > maxEnvelopeBytes) return errorResponse('event_size_limit', 'Event envelope exceeds its size limit.', 413);
+    const expected = await hmac(env.LACIFY_EVENT_ROUTER_SECRET, timestamp + '.' + body);
+    if (!equalHex(signature, expected)) return errorResponse('event_signature_invalid', 'Event signature is invalid.', 401);
+    let envelope;
+    try { envelope = JSON.parse(body); } catch { return errorResponse('invalid_json', 'Event envelope must be JSON.', 400); }
+    if (envelope?.version !== 'lacify.dev/event/v1' || typeof envelope.eventId !== 'string' || !/^[A-Za-z0-9._:-]{1,160}$/.test(envelope.eventId) || !targets.has(envelope.target) || typeof envelope.event !== 'string' || !/^[A-Z][A-Za-z0-9]{0,62}$/.test(envelope.event) || !Number.isSafeInteger(envelope.occurredAt)) return errorResponse('invalid_event_envelope', 'Event envelope is invalid.', 422);
+    if (envelope.target === 'reporting' && !envelope.projection?.key) return errorResponse('invalid_reporting_route', 'Reporting projection key is required.', 422);
+    if (envelope.target === 'realtime' && (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(envelope.routing?.roomClass || '') || typeof envelope.routing?.room !== 'string' || !/^[A-Za-z0-9._~-]{1,128}$/.test(envelope.routing.room))) return errorResponse('invalid_realtime_route', 'Realtime room route is invalid.', 422);
+    const shardBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(envelope.eventId));
+    const shard = (new Uint8Array(shardBytes)[0] & 15).toString(16);
+    const actor = env.EVENT_ROUTER_DO.get(env.EVENT_ROUTER_DO.idFromName([${JSON.stringify(projectId)}, env.LACIFY_ENVIRONMENT || 'development', envelope.target, shard].join(':')));
+    return actor.fetch(new Request('https://lacify.internal/deliver', { method: 'POST', headers: { 'content-type': 'application/json' }, body }));
+  },
+};
+`
+}
+
+function reportingWorkerSource(projectId: string) {
+  return `import { DurableObject } from 'cloudflare:workers';
+
+const maxEventBytes = 262144;
+const identifier = /^[A-Z][A-Za-z0-9]{0,62}$/;
+
+function jsonError(code, message, status) {
+  return Response.json({ success: false, error: { code, message } }, { status });
+}
+
+export class ReportingActor extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.ctx = ctx;
+    this.env = env;
+    this.sql = ctx.storage.sql;
+    this.sql.exec("CREATE TABLE IF NOT EXISTS _lacify_report_events (event_id TEXT PRIMARY KEY, source_partition TEXT NOT NULL, event_name TEXT NOT NULL, source_sequence INTEGER, payload TEXT NOT NULL, projection TEXT NOT NULL, occurred_at INTEGER NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS _lacify_report_daily (day TEXT NOT NULL, event_name TEXT NOT NULL, dimension_key TEXT NOT NULL, measure TEXT NOT NULL, total REAL NOT NULL, event_count INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (day, event_name, dimension_key, measure))");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS _lacify_report_cursors (source_partition TEXT NOT NULL, event_name TEXT NOT NULL, last_sequence INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (source_partition, event_name))");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS _lacify_report_gaps (source_partition TEXT NOT NULL, event_name TEXT NOT NULL, expected_sequence INTEGER NOT NULL, received_sequence INTEGER NOT NULL, detected_at INTEGER NOT NULL, resolved_at INTEGER, PRIMARY KEY (source_partition, event_name, expected_sequence))");
+  }
+
+  project(event) {
+    const projection = event.projection;
+    const dimensions = Object.fromEntries(projection.dimensions.map((field) => [field, event.payload[field] ?? null]));
+    const dimensionKey = JSON.stringify(dimensions);
+    const day = new Date(event.occurredAt).toISOString().slice(0, 10);
+    for (const measure of projection.measures) {
+      const value = event.payload[measure.field];
+      if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('invalid_measure');
+      this.sql.exec("INSERT INTO _lacify_report_daily (day, event_name, dimension_key, measure, total, event_count, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?) ON CONFLICT(day, event_name, dimension_key, measure) DO UPDATE SET total = total + excluded.total, event_count = event_count + 1, updated_at = excluded.updated_at", day, event.event, dimensionKey, measure.field, value, Date.now());
+    }
+    if (projection.sequenceField) {
+      const sequence = event.payload[projection.sequenceField];
+      if (!Number.isSafeInteger(sequence) || sequence < 1) throw new Error('invalid_sequence');
+      const cursor = [...this.sql.exec("SELECT last_sequence FROM _lacify_report_cursors WHERE source_partition = ? AND event_name = ?", event.partitionKey, event.event)][0];
+      const expected = Number(cursor?.last_sequence || 0) + 1;
+      if (sequence > expected) this.sql.exec("INSERT OR IGNORE INTO _lacify_report_gaps (source_partition, event_name, expected_sequence, received_sequence, detected_at) VALUES (?, ?, ?, ?, ?)", event.partitionKey, event.event, expected, sequence, Date.now());
+      this.sql.exec("INSERT INTO _lacify_report_cursors (source_partition, event_name, last_sequence, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(source_partition, event_name) DO UPDATE SET last_sequence = MAX(last_sequence, excluded.last_sequence), updated_at = excluded.updated_at", event.partitionKey, event.event, sequence, Date.now());
+    }
+  }
+
+  consume(event) {
+    const existing = [...this.sql.exec("SELECT event_id FROM _lacify_report_events WHERE event_id = ?", event.eventId)][0];
+    if (existing) return false;
+    this.ctx.storage.transactionSync(() => {
+      this.project(event);
+      const sourceSequence = event.projection.sequenceField ? event.payload[event.projection.sequenceField] : null;
+      this.sql.exec("INSERT INTO _lacify_report_events (event_id, source_partition, event_name, source_sequence, payload, projection, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?)", event.eventId, event.partitionKey, event.event, sourceSequence, JSON.stringify(event.payload), JSON.stringify(event.projection), event.occurredAt);
+    });
+    return true;
+  }
+
+  rebuild() {
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM _lacify_report_daily");
+      this.sql.exec("DELETE FROM _lacify_report_cursors");
+      this.sql.exec("DELETE FROM _lacify_report_gaps");
+      const rows = [...this.sql.exec("SELECT event_id, source_partition, event_name, source_sequence, payload, projection, occurred_at FROM _lacify_report_events ORDER BY source_partition, event_name, CASE WHEN source_sequence IS NULL THEN occurred_at ELSE source_sequence END, event_id")];
+      for (const row of rows) this.project({ eventId: row.event_id, partitionKey: row.source_partition, event: row.event_name, payload: JSON.parse(row.payload), projection: JSON.parse(row.projection), occurredAt: Number(row.occurred_at) });
+    });
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === '/events' && request.method === 'POST') {
+      const event = await request.json().catch(() => null);
+      if (!event || event.version !== 'lacify.dev/event/v1' || event.target !== 'reporting' || typeof event.eventId !== 'string' || !identifier.test(event.event) || typeof event.partitionKey !== 'string' || !event.partitionKey || typeof event.projection?.key !== 'string' || !event.projection.key || !Array.isArray(event.projection.dimensions) || !Array.isArray(event.projection.measures)) return jsonError('invalid_reporting_event', 'Reporting event contract is invalid.', 422);
+      event.occurredAt = Number.isSafeInteger(event.occurredAt) ? event.occurredAt : Date.now();
+      try {
+        const inserted = this.consume(event);
+        return Response.json({ success: true, eventId: event.eventId, duplicate: !inserted }, { status: inserted ? 202 : 409 });
+      } catch (error) {
+        return jsonError('projection_failed', 'Reporting projection failed safely.', 409);
+      }
+    }
+    if (url.pathname === '/summary' && request.method === 'GET') {
+      const eventName = url.searchParams.get('event');
+      const fromDay = url.searchParams.get('fromDay') || '0000-01-01';
+      const toDay = url.searchParams.get('toDay') || '9999-12-31';
+      if (!eventName || !identifier.test(eventName) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(fromDay) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(toDay)) return jsonError('invalid_report_query', 'A bounded report event and date range are required.', 400);
+      const rows = [...this.sql.exec("SELECT day, event_name, dimension_key, measure, total, event_count, updated_at FROM _lacify_report_daily WHERE event_name = ? AND day >= ? AND day <= ? ORDER BY day, dimension_key, measure LIMIT 501", eventName, fromDay, toDay)];
+      if (rows.length > 500) return jsonError('report_row_limit', 'Report exceeds its 500 row limit.', 422);
+      return Response.json({ success: true, items: rows.map((row) => ({ day: row.day, event: row.event_name, dimensions: JSON.parse(row.dimension_key), measure: row.measure, total: Number(row.total), eventCount: Number(row.event_count), updatedAt: Number(row.updated_at) })) });
+    }
+    if (url.pathname === '/reconciliation' && request.method === 'GET') {
+      const gaps = [...this.sql.exec("SELECT source_partition, event_name, expected_sequence, received_sequence, detected_at FROM _lacify_report_gaps WHERE resolved_at IS NULL ORDER BY detected_at LIMIT 101")];
+      const eventCount = Number([...this.sql.exec("SELECT COUNT(*) AS count FROM _lacify_report_events")][0]?.count || 0);
+      const projectionCells = Number([...this.sql.exec("SELECT COUNT(*) AS count FROM _lacify_report_daily")][0]?.count || 0);
+      return Response.json({ success: true, healthy: gaps.length === 0, eventCount, projectionCells, gapCount: gaps.length, gaps: gaps.slice(0, 100).map((row) => ({ sourcePartition: row.source_partition, event: row.event_name, expectedSequence: Number(row.expected_sequence), receivedSequence: Number(row.received_sequence), detectedAt: Number(row.detected_at) })) });
+    }
+    if (url.pathname === '/rebuild' && request.method === 'POST') {
+      if (!this.env.LACIFY_REPORTING_REBUILD_SECRET || request.headers.get('x-lacify-reporting-approval') !== this.env.LACIFY_REPORTING_REBUILD_SECRET) return jsonError('approval_required', 'Exact reporting rebuild approval is required.', 403);
+      this.rebuild();
+      return Response.json({ success: true, rebuilt: true });
+    }
+    return jsonError('not_found', 'Reporting route not found.', 404);
+  }
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.pathname === '/__lacify/reporting/health' && request.method === 'GET') return Response.json({ ok: Boolean(env.REPORTING_DO && env.LACIFY_REPORTING_SINK_SECRET), service: 'lacify-reporting', sqlite: true });
+    if (url.pathname === '/v1/events' && request.method === 'POST') {
+      if (!env.LACIFY_REPORTING_SINK_SECRET || request.headers.get('x-lacify-event-sink-secret') !== env.LACIFY_REPORTING_SINK_SECRET) return jsonError('sink_authentication_required', 'Event sink authentication is required.', 401);
+      if (Number(request.headers.get('content-length') || 0) > maxEventBytes) return jsonError('event_size_limit', 'Event exceeds its size limit.', 413);
+      const event = await request.clone().json().catch(() => null);
+      if (!event?.projection?.key) return jsonError('invalid_reporting_key', 'Reporting key is required.', 422);
+      return env.REPORTING_DO.get(env.REPORTING_DO.idFromName([${JSON.stringify(projectId)}, env.LACIFY_ENVIRONMENT || 'development', event.projection.key].join(':'))).fetch(new Request('https://lacify.internal/events', request));
+    }
+    const match = /^\\/v1\\/reports\\/([A-Za-z0-9._~-]{1,128})\\/(summary|reconciliation|rebuild)$/.exec(url.pathname);
+    if (!match) return jsonError('not_found', 'Reporting route not found.', 404);
+    if (!env.LACIFY_REPORTING_READ_TOKEN || request.headers.get('authorization') !== 'Bearer ' + env.LACIFY_REPORTING_READ_TOKEN) return jsonError('report_authentication_required', 'Reporting authentication is required.', 401);
+    const [, key, action] = match;
+    const actor = env.REPORTING_DO.get(env.REPORTING_DO.idFromName([${JSON.stringify(projectId)}, env.LACIFY_ENVIRONMENT || 'development', key].join(':')));
+    const forwarded = new Request('https://lacify.internal/' + action + url.search, request);
+    return actor.fetch(forwarded);
+  },
+};
 `
 }
 
@@ -733,16 +1161,90 @@ export async function compileRelease(projectId: string, sourceContracts: SourceC
         kind: definition.kind,
         checksum,
         result: definition.result,
+        emits: definition.emits || [],
       })),
     })),
     resourcePlan: {
       durableObjects: contracts.map((contract) => `${contract.aggregateType.toUpperCase()}_DO`),
-      sqliteTables: contracts.flatMap((contract) => [...contract.objects.map((object) => objectTable(contract, object.name)), ...authoredTables(contract)]),
+      sqliteTables: [...new Set(contracts.flatMap((contract) => [...contract.objects.map((object) => objectTable(contract, object.name)), ...authoredTables(contract), '_lacify_outbox']))],
+      eventRouter: contracts.some((contract) => (contract.operations || []).some(({ definition }) => (definition.emits || []).length > 0)),
+      eventTargets: [...new Set(contracts.flatMap((contract) => (contract.operations || []).flatMap(({ definition }) => (definition.emits || []).map((emit) => emit.target))))].sort(),
+      reporting: contracts.some((contract) => (contract.operations || []).some(({ definition }) => (definition.emits || []).some((emit) => emit.target === 'reporting'))),
     },
     lifecycle: lifecycleSteps,
     targets: ['cloudflare-durable-objects', 'kotlin-ktor-starter', 'node-web-backend-starter', 'react-webapp-command-console'],
     webApp: blueprint ? { name: blueprint.name, aggregates: [...blueprint.aggregates].sort() } : null,
   }
+  const eventTargets = [...new Set(contracts.flatMap((contract) => (contract.operations || []).flatMap(({ definition }) => (definition.emits || []).map((emit) => emit.target))))]
+  const hasEvents = eventTargets.length > 0
+  const hasReporting = eventTargets.includes('reporting')
+  const hasRealtime = eventTargets.includes('realtime')
+  const hasArchive = eventTargets.includes('archive')
+  const reportingArtifact = hasReporting ? {
+    'reporting-worker.js': reportingWorkerSource(projectId),
+    'wrangler.reporting.jsonc': `${JSON.stringify({
+      name: `lacify-${projectId}-reporting`,
+      main: 'reporting-worker.js',
+      compatibility_date: '2026-07-20',
+      durable_objects: { bindings: [{ name: 'REPORTING_DO', class_name: 'ReportingActor' }] },
+      migrations: [{ tag: 'r1', new_sqlite_classes: ['ReportingActor'] }],
+      vars: { LACIFY_ENVIRONMENT: 'development' },
+    }, null, 2)}\n`,
+  } : {}
+  const eventRouterArtifact = hasEvents ? {
+    'event-router.js': eventRouterWorkerSource(projectId, eventTargets),
+    'wrangler.event-router.jsonc': `${JSON.stringify({
+      name: `lacify-${projectId}-event-router`,
+      main: 'event-router.js',
+      compatibility_date: '2026-07-20',
+      durable_objects: { bindings: [{ name: 'EVENT_ROUTER_DO', class_name: 'EventRouterActor' }] },
+      migrations: [{ tag: 'r1', new_sqlite_classes: ['EventRouterActor'] }],
+      ...(hasReporting || hasRealtime ? {
+        services: [
+          ...(hasReporting ? [{ binding: 'REPORTING_SINK', service: `lacify-${projectId}-reporting` }] : []),
+          ...(hasRealtime ? [{ binding: 'REALTIME_SINK', service: `lacify-realtime-${projectId}` }] : []),
+        ],
+      } : {}),
+      ...(hasArchive ? { r2_buckets: [{ binding: 'ARCHIVE', bucket_name: `lacify-${projectId}-event-archive` }] } : {}),
+      vars: { LACIFY_ENVIRONMENT: 'development' },
+    }, null, 2)}\n`,
+    'deployment-secrets.json': `${JSON.stringify({
+      format: 'lacify-deployment-secrets/v1',
+      valuesIncluded: false,
+      secrets: [
+        { name: 'LACIFY_EVENT_ROUTER_SECRET', workers: [`lacify-${projectId}`, `lacify-${projectId}-event-router`], requirement: 'same-value' },
+        ...(hasReporting ? [
+          { name: 'LACIFY_REPORTING_SINK_SECRET', workers: [`lacify-${projectId}-event-router`, `lacify-${projectId}-reporting`], requirement: 'same-value' },
+          { name: 'LACIFY_REPORTING_READ_TOKEN', workers: [`lacify-${projectId}-reporting`], requirement: 'independent' },
+          { name: 'LACIFY_REPORTING_REBUILD_SECRET', workers: [`lacify-${projectId}-reporting`], requirement: 'independent' },
+        ] : []),
+        ...(hasRealtime ? [
+          { name: 'LACIFY_REALTIME_SINK_SECRET', workers: [`lacify-${projectId}-event-router`, `lacify-realtime-${projectId}`], requirement: 'same-value' },
+        ] : []),
+        { name: 'LACIFY_PREFLIGHT_SECRET', workers: [`lacify-${projectId}-event-router`], requirement: 'independent' },
+      ],
+    }, null, 2)}\n`,
+    'deployment-preflight.json': `${JSON.stringify({
+      format: 'lacify-deployment-preflight/v1',
+      remoteMutation: false,
+      endpoint: '/__lacify/router/preflight',
+      method: 'POST',
+      approvalHeader: 'x-lacify-preflight-approval',
+      checks: [
+        'event-router-durable-object',
+        ...eventTargets.map((target) => `${target}-binding-and-secret`),
+        ...eventTargets.filter((target) => target !== 'archive').map((target) => `${target}-deep-health`),
+      ],
+    }, null, 2)}\n`,
+    ...(hasArchive ? {
+      'r2-lifecycle.json': `${JSON.stringify({
+        format: 'lacify-r2-lifecycle/v1',
+        bucket: `lacify-${projectId}-event-archive`,
+        remoteMutation: false,
+        rules: [{ prefix: `events/${projectId}/`, expireAfterDays: 30, rationale: 'Bound event archive growth; change only with reviewed retention requirements.' }],
+      }, null, 2)}\n`,
+    } : {}),
+  } : {}
   const artifact = {
     'manifest.json': `${stable(manifest)}\n`,
     'worker.js': workerSource(contracts),
@@ -753,7 +1255,10 @@ export async function compileRelease(projectId: string, sourceContracts: SourceC
       compatibility_date: '2026-07-20',
       durable_objects: { bindings: contracts.map((contract) => ({ name: `${contract.aggregateType.toUpperCase()}_DO`, class_name: `${contract.aggregateType}DO` })) },
       migrations: [{ tag: 'v1', new_sqlite_classes: contracts.map((contract) => `${contract.aggregateType}DO`) }],
+      ...(hasEvents ? { services: [{ binding: 'LACIFY_EVENT_SINK', service: `lacify-${projectId}-event-router` }] } : {}),
     }, null, 2)}\n`,
+    ...eventRouterArtifact,
+    ...reportingArtifact,
     ...kotlinStarter(contracts),
     ...webBackendStarter(contracts),
     ...reactWebAppStarter(projectId, contracts, blueprint),

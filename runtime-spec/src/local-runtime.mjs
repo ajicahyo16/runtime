@@ -142,6 +142,23 @@ export function executeLocalOperation(database, actor, {
     created_at INTEGER NOT NULL,
     PRIMARY KEY (operation, idempotency_key)
   );`)
+  database.exec(`CREATE TABLE IF NOT EXISTS _lacify_outbox (
+    event_id TEXT PRIMARY KEY,
+    operation TEXT NOT NULL,
+    partition_key TEXT NOT NULL,
+    event_name TEXT NOT NULL,
+    target TEXT NOT NULL,
+    durability TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    projection TEXT,
+    routing TEXT,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    available_at INTEGER NOT NULL,
+    last_error TEXT,
+    created_at INTEGER NOT NULL,
+    delivered_at INTEGER
+  );`)
   const inputHash = hash(stableJson(input))
   if (entry.definition.kind === 'command' && idempotencyKey) {
     const existing = database.prepare('SELECT input_hash AS inputHash, response FROM _lacify_operation_receipts WHERE operation = ? AND idempotency_key = ?').get(operation, idempotencyKey)
@@ -160,10 +177,11 @@ export function executeLocalOperation(database, actor, {
   } else if (page !== null) {
     throw operationError('pagination_not_supported', 'This operation does not support pagination.')
   }
+  const runtimeCommandId = commandId()
   const { statement, values } = operationBindings(entry.sql, input, {
     partitionId: partition,
     now: runtimeNow,
-    commandId: commandId(),
+    commandId: runtimeCommandId,
     cursor: pageCursor,
     pageSize: requestedPageSize === null ? null : requestedPageSize + 1,
   })
@@ -180,6 +198,15 @@ export function executeLocalOperation(database, actor, {
       : shapeResult(entry.definition, rows)
     if (Buffer.byteLength(JSON.stringify(data), 'utf8') > 256 * 1024) throw operationError('result_size_limit', 'Operation result exceeds 256 KiB.')
     const result = { success: true, operation, partitionId: partition, data }
+    for (const [index, emit] of (entry.definition.emits || []).entries()) {
+      const emittedPayload = Object.fromEntries(emit.fields.map((field) => [field, data?.[field] ?? null]))
+      const projection = emit.reporting ? { ...emit.reporting, key: emit.reporting.keyField === '$partitionKey' ? partition : emittedPayload[emit.reporting.keyField] } : null
+      const routing = emit.realtime ? { roomClass: emit.realtime.roomClass, room: emit.realtime.roomField === '$partitionKey' ? partition : emittedPayload[emit.realtime.roomField] } : null
+      database.prepare(`INSERT INTO _lacify_outbox
+        (event_id, operation, partition_key, event_name, target, durability, payload, projection, routing, status, attempts, available_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`)
+        .run(`${runtimeCommandId}:${index}`, operation, partition, emit.event, emit.target, emit.durability, JSON.stringify(emittedPayload), projection ? JSON.stringify(projection) : null, routing ? JSON.stringify(routing) : null, runtimeNow, runtimeNow)
+    }
     if (entry.definition.kind === 'command' && idempotencyKey) {
       database.prepare('INSERT INTO _lacify_operation_receipts (operation, idempotency_key, input_hash, response, created_at) VALUES (?, ?, ?, ?, ?)')
         .run(operation, idempotencyKey, inputHash, JSON.stringify(result), runtimeNow)

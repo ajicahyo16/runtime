@@ -4,6 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { loadRuntimeProject, stableStringify } from './index.mjs'
+import { loadRealtimeProject } from './realtime-spec.mjs'
 import { applyMigrationPlan, introspectActorSchema, planMigrations, readMigrationLedger } from './migration-engine.mjs'
 import { deviceLogin } from './device-auth.mjs'
 import { compareAuthoringState, createLock } from './synchronization.mjs'
@@ -78,6 +79,10 @@ function runtimePath(root) {
   return path.join(root, 'lacify.runtime.yaml')
 }
 
+function realtimePath(root) {
+  return path.join(root, 'lacify.realtime.yaml')
+}
+
 function databasePath(root, environment, actor) {
   return path.join(root, '.lacify', 'development', environment, `${actor}.sqlite`)
 }
@@ -124,7 +129,7 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
   const root = path.resolve(String(option(args, 'cwd', cwd)))
 
   if (command === 'help') {
-    output(io, json, { commands: ['login', 'logout', 'init', 'mcp-config', 'workspace-init', 'workspace-add', 'workspace-list', 'workspace-status', 'workspace-module-matrix', 'workspace-mcp-config', 'blueprint-export', 'blueprints', 'blueprint-info', 'blueprint-plan', 'blueprint-create', 'modules', 'module-plan', 'add', 'module-status', 'module-upgrade-plan', 'upgrade', 'validate', 'plan', 'review', 'apply-review', 'apply', 'pull', 'status', 'migrations', 'health', 'generate', 'integrate', 'doctor', 'snapshot', 'snapshots', 'verify-snapshot', 'rehearse-restore', 'archive-create', 'archive-info', 'archive-verify', 'archive-restore', 'test', 'dev'] }, 'Usage: lacify <login|logout|init|mcp-config|workspace-init|workspace-add|workspace-list|workspace-status|workspace-module-matrix|workspace-mcp-config|blueprint-export|blueprints|blueprint-info|blueprint-plan|blueprint-create|modules|module-plan|add|module-status|module-upgrade-plan|upgrade|validate|plan|review|apply-review|apply|pull|status|migrations|health|generate|integrate|doctor|snapshot|snapshots|verify-snapshot|rehearse-restore|archive-create|archive-info|archive-verify|archive-restore|test|dev> [--env development] [--json]')
+    output(io, json, { commands: ['login', 'logout', 'init', 'realtime', 'mcp-config', 'workspace-init', 'workspace-add', 'workspace-list', 'workspace-status', 'workspace-module-matrix', 'workspace-mcp-config', 'blueprint-export', 'blueprints', 'blueprint-info', 'blueprint-plan', 'blueprint-create', 'modules', 'module-plan', 'add', 'module-status', 'module-upgrade-plan', 'upgrade', 'validate', 'plan', 'review', 'apply-review', 'apply', 'pull', 'status', 'migrations', 'health', 'generate', 'integrate', 'doctor', 'snapshot', 'snapshots', 'verify-snapshot', 'rehearse-restore', 'archive-create', 'archive-info', 'archive-verify', 'archive-restore', 'test', 'dev'] }, 'Usage: lacify <login|logout|init|realtime|mcp-config|workspace-init|workspace-add|workspace-list|workspace-status|workspace-module-matrix|workspace-mcp-config|blueprint-export|blueprints|blueprint-info|blueprint-plan|blueprint-create|modules|module-plan|add|module-status|module-upgrade-plan|upgrade|validate|plan|review|apply-review|apply|pull|status|migrations|health|generate|integrate|doctor|snapshot|snapshots|verify-snapshot|rehearse-restore|archive-create|archive-info|archive-verify|archive-restore|test|dev> [--env development] [--json]')
     return 0
   }
 
@@ -166,6 +171,32 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
     await saveLock(root, { version: 1, baseRevision: null, projectFingerprint: null, environments: {} })
     output(io, json, { initialized: true, project, template, root }, `Initialized Lacify project ${project} from the ${template} template.`)
     return 0
+  }
+
+  if (command === 'realtime') {
+    const action = args.shift() || 'help'
+    if (action === 'help') {
+      output(io, json, { commands: ['validate', 'plan'] }, 'Usage: lacify realtime <validate|plan> [--json]')
+      return 0
+    }
+    const realtime = await loadRealtimeProject(realtimePath(root))
+    if (!realtime.valid) throw Object.assign(new Error('Realtime project validation failed.'), { diagnostics: realtime.issues })
+    if (action === 'validate') {
+      output(io, json, { valid: true, project: realtime.project.realtime.project, fingerprint: realtime.fingerprint, rooms: realtime.project.rooms.map(({ definition }) => definition.name) }, `Valid realtime project ${realtime.project.realtime.project} (${realtime.fingerprint.slice(0, 12)}), ${realtime.project.rooms.length} Room Actor(s).`)
+      return 0
+    }
+    if (action === 'plan') {
+      const plan = {
+        valid: true,
+        project: realtime.project.realtime.project,
+        fingerprint: realtime.fingerprint,
+        remoteMutation: false,
+        rooms: realtime.project.rooms.map(({ definition }) => ({ name: definition.name, partitionBy: definition.partitionBy, capabilities: definition.capabilities })),
+      }
+      output(io, json, plan, `Ready: immutable realtime plan ${realtime.fingerprint.slice(0, 12)} with ${plan.rooms.length} Room Actor(s); no remote mutation.`)
+      return 0
+    }
+    throw new Error(`Unknown realtime command "${action}".`)
   }
 
   if (command === 'mcp-config') {

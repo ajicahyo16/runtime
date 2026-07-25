@@ -174,7 +174,7 @@ test('MCP previews blueprint projects and requires exact approved source context
     role: 'developer',
     user: 'blueprint-test',
   })
-  assert.equal(service.tools().length, 41)
+  assert.equal(service.tools().length, 43)
   const listed = await service.callTool('list_project_blueprints')
   assert.equal(listed.blueprints.length, 1)
   assert.equal(listed.businessRowsReturned, false)

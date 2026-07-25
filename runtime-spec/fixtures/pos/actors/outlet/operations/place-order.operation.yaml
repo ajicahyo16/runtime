@@ -18,3 +18,28 @@ result:
       type: integer
     status:
       type: string
+emits:
+  - event: OrderPlaced
+    target: realtime
+    durability: segmented
+    fields:
+      - id
+      - total
+      - status
+    realtime:
+      roomClass: store
+      roomField: $partitionKey
+  - event: OrderPlaced
+    target: reporting
+    durability: immediate
+    fields:
+      - id
+      - total
+      - status
+    reporting:
+      keyField: $partitionKey
+      dimensions:
+        - status
+      measures:
+        - field: total
+          aggregate: sum

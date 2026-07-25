@@ -11,6 +11,7 @@ import {
   validateOperationSql,
 } from './index.mjs'
 import { introspectActorSchema } from './migration-engine.mjs'
+import { loadRealtimeProject } from './realtime-spec.mjs'
 import { selectWorkspaceProject, workspaceModuleMatrix, workspaceProjects } from './workspace-catalog.mjs'
 import { createBlueprintProject, inspectProjectBlueprint, listProjectBlueprints, planBlueprintProject } from './project-blueprint.mjs'
 
@@ -222,6 +223,8 @@ export class LacifyMcpService {
   tools() {
     const object = (properties = {}, required = []) => ({ type: 'object', properties, required, additionalProperties: false })
     return [
+      ['get_realtime_project', 'Read validated realtime Room Actor metadata without room payloads or remote mutation.', object()],
+      ['plan_realtime_release', 'Return a deterministic metadata-only realtime release plan without remote mutation.', object()],
       ['list_projects', 'List repository projects visible in this authenticated scope.', object()],
       ['get_project', 'Read bounded project and Actor metadata without business rows.', object()],
       ['get_actor_schema', 'Read Actor definition and migration IDs.', object({ actor: { type: 'string' } }, ['actor'])],
@@ -367,6 +370,26 @@ export class LacifyMcpService {
   }
 
   async callTool(name, args = {}) {
+    if (name === 'get_realtime_project' || name === 'plan_realtime_release') {
+      const realtime = await loadRealtimeProject(path.join(this.root, 'lacify.realtime.yaml'))
+      if (!realtime.valid) throw Object.assign(new Error('Realtime project validation failed.'), { data: { diagnostics: realtime.issues } })
+      const result = {
+        project: realtime.project.realtime.project,
+        fingerprint: realtime.fingerprint,
+        rooms: realtime.project.rooms.map(({ definition }) => ({
+          name: definition.name,
+          partitionBy: definition.partitionBy,
+          capabilities: definition.capabilities,
+          storage: definition.storage,
+          retention: definition.retention,
+          limits: definition.limits,
+          auth: { mode: definition.auth.mode, allowedOrigins: definition.auth.allowedOrigins },
+        })),
+        remoteMutation: false,
+        roomPayloadsReturned: false,
+      }
+      return name === 'plan_realtime_release' ? { ...result, planId: `realtime_${realtime.fingerprint.slice(0, 40)}` } : result
+    }
     if (name === 'list_projects') {
       const project = await this.project()
       const local = [{ id: project.project.runtime.project, fingerprint: project.fingerprint, source: 'repository' }]

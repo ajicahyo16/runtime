@@ -10,4 +10,5 @@ tsconfig.tsbuildinfo
 **/.lacify/development/
 **/.lacify/backups/
 **/.lacify/recovery/
+/.lacify/staging-qualification/
 *.lacify.enc

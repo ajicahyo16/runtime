@@ -124,6 +124,8 @@ test('validates typed operation contracts and protects runtime-owned parameters'
     result: { mode: 'one', fields: { id: { type: 'string' } } },
   }
   assert.deepEqual(validateOperationDocument(valid, ['PlaceOrder']), [])
+  assert.deepEqual(validateOperationDocument({ ...valid, emits: [{ event: 'OrderPlaced', target: 'realtime', durability: 'segmented', fields: ['id'], realtime: { roomClass: 'store', roomField: '$partitionKey' } }] }, ['PlaceOrder']), [])
+  assert.deepEqual(validateOperationDocument({ ...valid, emits: [{ event: 'OrderPlaced', target: 'reporting', durability: 'immediate', fields: ['id', 'total'], reporting: { keyField: '$partitionKey', dimensions: ['id'], measures: [{ field: 'total', aggregate: 'sum' }] } }], result: { mode: 'one', fields: { id: { type: 'string' }, total: { type: 'integer' } } } }, ['PlaceOrder']), [])
   const issues = validateOperationDocument({
     ...valid,
     name: 'UnknownCommand',
@@ -135,6 +137,11 @@ test('validates typed operation contracts and protects runtime-owned parameters'
   assert.ok(issues.some((entry) => entry.code === 'input_type'))
   assert.ok(issues.some((entry) => entry.code === 'row_limit'))
   assert.ok(validateOperationDocument({ ...valid, hidden: true }, ['PlaceOrder']).some((entry) => entry.code === 'unknown_field'))
+  const emitIssues = validateOperationDocument({ ...valid, kind: 'query', emits: [{ event: 'bad-event', target: 'unknown', durability: 'ephemeral', fields: ['missing'] }] }, ['PlaceOrder'])
+  assert.ok(emitIssues.some((entry) => entry.path === 'emits'))
+  assert.ok(emitIssues.some((entry) => entry.code === 'event_target'))
+  assert.ok(emitIssues.some((entry) => entry.code === 'durability'))
+  assert.ok(emitIssues.some((entry) => entry.code === 'result_reference'))
 })
 
 test('allows bounded parameterized command and query SQL', () => {

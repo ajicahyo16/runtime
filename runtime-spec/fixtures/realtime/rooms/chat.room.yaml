@@ -1,0 +1,31 @@
+version: lacify.dev/room/v1
+name: Chat
+partitionBy: roomId
+capabilities:
+  - events
+  - presence
+  - history
+storage: sqlite
+retention:
+  historySeconds: 86400
+  maxEvents: 10000
+limits:
+  maxFrameBytes: 16384
+  maxConnections: 500
+  maxPresenceBytes: 2048
+  maxDocumentUpdateBytes: 65536
+budget:
+  maxPersistentEventsPerUtcDay: 50000
+events:
+  - name: SendMessage
+    durability: segmented
+    batchSize: 100
+    retryFlushMs: 5000
+  - name: TypingChanged
+    durability: ephemeral
+  - name: PaymentConfirmed
+    durability: immediate
+auth:
+  mode: token
+  allowedOrigins:
+    - https://app.example.com

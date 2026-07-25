@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { cp, mkdtemp, readFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
@@ -20,10 +20,23 @@ test('MCP exposes bounded project resources and all planned tools', async () => 
   assert.equal(initialized.serverInfo.name, 'lacify-runtime')
   const resources = await service.listResources()
   assert.equal(resources.length, 3)
-  assert.equal(service.tools().length, 41)
+  assert.equal(service.tools().length, 43)
   const project = await service.callTool('get_project')
   assert.equal(project.project, 'mcp-test')
   assert.equal(JSON.stringify(project).includes('sqlite'), true)
+})
+
+test('MCP exposes metadata-only realtime inspect and plan tools', async () => {
+  const { root, service } = await fixture()
+  await mkdir(path.join(root, 'rooms'))
+  await writeFile(path.join(root, 'lacify.realtime.yaml'), 'version: lacify.dev/realtime/v1\nproject: mcp-realtime\nruntime: realtime\nrooms:\n  - ./rooms/chat.room.yaml\n')
+  await writeFile(path.join(root, 'rooms', 'chat.room.yaml'), 'version: lacify.dev/room/v1\nname: Chat\npartitionBy: roomId\ncapabilities:\n  - events\n  - presence\n  - history\nstorage: sqlite\nretention:\n  historySeconds: 86400\n  maxEvents: 100000\nlimits:\n  maxFrameBytes: 65536\n  maxConnections: 1000\n  maxPresenceBytes: 4096\n  maxDocumentUpdateBytes: 262144\nbudget:\n  maxPersistentEventsPerUtcDay: 50000\nauth:\n  mode: token\n  allowedOrigins:\n    - https://app.example.com\n')
+  const metadata = await service.callTool('get_realtime_project')
+  const plan = await service.callTool('plan_realtime_release')
+  assert.equal(metadata.roomPayloadsReturned, false)
+  assert.equal(plan.remoteMutation, false)
+  assert.match(plan.planId, /^realtime_[a-f0-9]{40}$/)
+  assert.equal(plan.fingerprint, metadata.fingerprint)
 })
 
 test('MCP exposes operation contracts and generates a typed client without business rows', async () => {

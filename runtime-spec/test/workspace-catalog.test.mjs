@@ -125,7 +125,7 @@ test('workspace-aware MCP discovers peers but keeps mutation context bound to on
     mcpProject: 'selected-project',
     role: 'developer',
   })
-  assert.equal(service.tools().length, 41)
+  assert.equal(service.tools().length, 43)
   const projects = await service.callTool('list_workspace_projects')
   assert.equal(projects.projects.length, 2)
   assert.equal(projects.businessRowsReturned, false)
