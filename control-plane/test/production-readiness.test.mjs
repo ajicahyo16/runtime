@@ -34,6 +34,16 @@ test('requires live runtime health, recent telemetry, and recovery evidence for 
   assert.match(control, /AbortSignal\.timeout\(5_000\)/)
 })
 
+test('keeps scheduled monitoring shallow while retaining explicit deep health checks', () => {
+  const scheduledHealth = control.slice(
+    control.indexOf('async function persistRuntimeHealth'),
+    control.indexOf('async function sampleRuntimeHealth'),
+  )
+  assert.match(scheduledHealth, /const endpoint = `\$\{deployment\.runtime_url\}\/health`/)
+  assert.doesNotMatch(scheduledHealth, /deep=1/)
+  assert.match(control, /fetch\(`\$\{runtimeUrl\}\/health\?deep=1`/)
+})
+
 test('keeps encrypted secrets out of environment read responses', () => {
   assert.match(control, /SELECT environment, name, rotated_at FROM environment_secrets/)
   assert.doesNotMatch(control, /SELECT environment, name, value_envelope, rotated_at FROM environment_secrets/)

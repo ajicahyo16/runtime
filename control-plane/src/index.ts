@@ -703,7 +703,10 @@ const healthStaleAfterMs = 10 * 60 * 1000
 async function persistRuntimeHealth(env: Env, deployment: HealthDeployment) {
   const recent = await env.DB.prepare('SELECT checked_at, status FROM runtime_health_samples WHERE deployment_id = ? ORDER BY checked_at DESC LIMIT 1').bind(deployment.id).first<{ checked_at: number; status: string }>()
   if (recent && recent.status === 'healthy' && recent.checked_at > now() - healthSampleIntervalMs) return
-  const endpoint = `${deployment.runtime_url}/health?deep=1`
+  // Scheduled monitoring must remain worker-only. Deep health wakes every
+  // aggregate Durable Object and consumes account-wide DO/SQLite quotas, so it
+  // is reserved for explicit deployment, readiness, and rollback checks.
+  const endpoint = `${deployment.runtime_url}/health`
   const checkedAt = now()
   const startedAt = performance.now()
   let response: Response | null = null
