@@ -2082,13 +2082,13 @@ export default {
           const recoveryDelays = [0, 2_000, 4_000, 8_000, 8_000, 8_000]
           for (const delay of recoveryDelays) {
             if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
-            recoveredResponse = await fetch(`${existing.runtime_url}/health`, { headers: { accept: 'application/json' } }).catch(() => null)
+            recoveredResponse = await fetch(`${existing.runtime_url}/health?deep=1`, { headers: { accept: 'application/json' } }).catch(() => null)
             recoveredPayload = recoveredResponse ? await recoveredResponse.json<{ ok?: boolean }>().catch(() => null) : null
             if (recoveredResponse?.ok && recoveredPayload?.ok === true) break
           }
           if (recoveredResponse?.ok && recoveredPayload?.ok === true) {
             const recoveredAt = now()
-            const smokeCheck = { status: 'passed', message: 'Runtime health check passed after activation delay.', checkedAt: recoveredAt, url: `${existing.runtime_url}/health` }
+            const smokeCheck = { status: 'passed', message: 'Deep runtime health check passed after activation delay.', checkedAt: recoveredAt, url: `${existing.runtime_url}/health?deep=1` }
             const recoveredLogs = [...JSON.parse(existing.logs || '[]') as unknown[], deploymentLog('smoke_recovered', smokeCheck.message, recoveredAt)]
             await env.DB.prepare('UPDATE deployment_jobs SET status = ?, smoke_check = ?, logs = ?, updated_at = ? WHERE id = ?').bind('succeeded', JSON.stringify(smokeCheck), JSON.stringify(recoveredLogs), recoveredAt, existing.id).run()
             await audit(env, workspaceId, session, `deployment.${environment}.succeeded`, 'deployment', existing.id, projectId, { releaseId, runtimeUrl: existing.runtime_url, smokeCheck, recovered: true })

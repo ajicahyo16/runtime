@@ -120,6 +120,22 @@ test('review receipt binds source files, tests, and migration plans before Devel
   assert.equal(JSON.parse(applied.value()).reviewedBy, result.receipt.reviewId)
 })
 
+test('a no-op reviewed apply preserves the existing Development revision', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lacify-noop-apply-'))
+  await runCli(['init', '--project', 'noop-project', '--template', 'personal'], capture().io, root)
+  const firstReview = capture()
+  await runCli(['review', '--json'], firstReview.io, root)
+  await runCli(['apply-review', '--review', JSON.parse(firstReview.value()).receipt.reviewId, '--approve'], capture().io, root)
+  const firstLock = JSON.parse(await readFile(path.join(root, '.lacify', 'lock.json'), 'utf8'))
+
+  const secondReview = capture()
+  await runCli(['review', '--json'], secondReview.io, root)
+  await runCli(['apply-review', '--review', JSON.parse(secondReview.value()).receipt.reviewId, '--approve'], capture().io, root)
+  const secondLock = JSON.parse(await readFile(path.join(root, '.lacify', 'lock.json'), 'utf8'))
+
+  assert.equal(secondLock.environments.development.revision, firstLock.environments.development.revision)
+})
+
 test('sync publishes an approved source without compiling or deploying a release', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'lacify-sync-'))
   await runCli(['init', '--project', 'sync-project', '--template', 'personal'], capture().io, root)
@@ -130,7 +146,7 @@ test('sync publishes an approved source without compiling or deploying a release
   const remoteClient = async () => ({
     request: async (route, init = {}) => {
       calls.push([route, init.method || 'GET'])
-      if (route === '/api/projects') return { projects: [{ id: 'sync-project' }] }
+      if (route === '/api/projects') return { projects: [{ id: 'sync-project', source_fingerprint: 'f'.repeat(64) }] }
       if (route.endsWith('/contracts')) return { contracts: [] }
       if (route.endsWith('/environments')) return { environments: { dev: { updatedAt: 1 } } }
       return { success: true }
@@ -143,6 +159,31 @@ test('sync publishes an approved source without compiling or deploying a release
   assert.equal(result.remote.release, undefined)
   assert.ok(calls.some(([route, method]) => route.endsWith('/repository-source') && method === 'PUT'))
   assert.equal(calls.some(([route, method]) => route.endsWith('/releases') && method === 'POST'), false)
+})
+
+test('sync binds updates to the current remote fingerprint instead of a stale local base', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lacify-sync-base-'))
+  await runCli(['init', '--project', 'sync-base-project', '--template', 'personal'], capture().io, root)
+  const reviewed = capture()
+  await runCli(['review', '--json'], reviewed.io, root)
+  const reviewId = JSON.parse(reviewed.value()).receipt.reviewId
+  const staleRemoteFingerprint = 'a'.repeat(64)
+  const requests = []
+  const remoteClient = async () => ({
+    request: async (route, init = {}) => {
+      requests.push([route, init])
+      if (route === '/api/projects') return { projects: [{ id: 'sync-base-project', source_fingerprint: staleRemoteFingerprint }] }
+      if (route.endsWith('/contracts')) return { contracts: [] }
+      if (route.endsWith('/environments')) return { environments: { dev: { updatedAt: 1 } } }
+      return { success: true }
+    },
+  })
+  assert.equal(await runCli(['sync', '--review', reviewId, '--approve'], capture().io, root, { remoteClient }), 0)
+  const contractUpdates = requests.filter(([route, init]) => route.includes('/contracts/') && init.method === 'PUT')
+  assert.ok(contractUpdates.length > 0)
+  assert.ok(contractUpdates.every(([, init]) => init.headers['x-lacify-base-fingerprint'] === staleRemoteFingerprint))
+  const sourceUpdate = requests.find(([route, init]) => route.endsWith('/repository-source') && init.method === 'PUT')
+  assert.equal(JSON.parse(sourceUpdate[1].body).baseFingerprint, staleRemoteFingerprint)
 })
 
 test('remote status is not ready when source or Development deployment is stale', async () => {

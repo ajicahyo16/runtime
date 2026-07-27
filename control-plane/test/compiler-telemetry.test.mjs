@@ -70,6 +70,21 @@ test('compiled runtime embeds forward-only authored migrations with immutable ch
   assert.match(release.artifact['worker.js'], /name: 'orders'/)
 })
 
+test('compiled runtime sanitizes kebab-case contract IDs for internal SQLite tables', async () => {
+  const release = await compileRelease('identifier-safety', [{
+    ...sourceContracts[0],
+    id: 'message-inbox',
+    name: 'MessageInbox',
+    aggregateType: 'MessageInbox',
+    objects: [{ name: 'InboxRoom', fields: 'id,updatedAt' }],
+    migrations: [{ id: '0001_initial', sql: 'CREATE TABLE inbox_rooms (id TEXT PRIMARY KEY);' }],
+  }])
+  const worker = release.artifact['worker.js']
+  assert.match(worker, /_lacify_runtime_message_inbox_inbox_room/)
+  assert.doesNotMatch(worker, /_lacify_runtime_message-inbox/)
+  assert.ok(release.manifest.resourcePlan.sqliteTables.includes('_lacify_runtime_message_inbox_inbox_room'))
+})
+
 test('compiled runtime embeds bounded typed data operations without arbitrary SQL routes', async () => {
   const release = await compileRelease('operation-runtime', [{
     ...sourceContracts[0],

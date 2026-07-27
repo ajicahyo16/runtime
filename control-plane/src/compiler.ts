@@ -71,7 +71,10 @@ function hex(bytes: ArrayBuffer) {
 const lifecycleSteps = ['Wake', 'Validate', 'Execute', 'Persist', 'Update summary', 'Respond', 'Sleep']
 
 function objectTable(contract: SourceContract, objectName: string) {
-  const table = `${contract.id}_${objectName}`.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()
+  const table = `${contract.id}_${objectName}`
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .replace(/[^a-zA-Z0-9_]/g, '_')
+    .toLowerCase()
   return contract.migrations?.length ? `_lacify_runtime_${table}` : table
 }
 

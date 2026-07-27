@@ -671,7 +671,11 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
       results.push({ actor: plan.actor, migrations: applyMigrationPlan(database, plan) })
       database.close()
     }
-    const revision = `revision_${randomUUID()}`
+    const changedLocalDevelopment = results.some(({ migrations }) => migrations.some(({ status }) => status === 'applied'))
+    const currentDevelopment = lock.environments?.development
+    const revision = !changedLocalDevelopment && currentDevelopment?.fingerprint === project.fingerprint
+      ? currentDevelopment.revision
+      : `revision_${randomUUID()}`
     await saveLock(root, createLock({
       projectFingerprint: project.fingerprint,
       baseRevision: revision,
@@ -682,13 +686,16 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
       const client = await (dependencies.remoteClient || remoteClient)()
       const projectId = project.project.runtime.project
       const existingProjects = await client.request('/api/projects')
-      if (!(existingProjects.projects || []).some(({ id }) => id === projectId)) {
+      let remoteProject = (existingProjects.projects || []).find(({ id }) => id === projectId)
+      if (!remoteProject) {
         await client.request('/api/projects', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ id: projectId, name: projectId }),
         })
+        remoteProject = { id: projectId }
       }
+      const remoteBaseFingerprint = remoteProject.sourceFingerprint || remoteProject.source_fingerprint || null
       const existingContracts = await client.request(`/api/projects/${encodeURIComponent(projectId)}/contracts`)
       const revisionById = new Map((existingContracts.contracts || []).map((contract) => [contract.id, contract.revision]))
       const existingById = new Map((existingContracts.contracts || []).map((contract) => [contract.id, contract]))
@@ -702,7 +709,7 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
           headers: {
             'content-type': 'application/json',
             ...(revision ? { 'if-match': String(revision) } : {}),
-            ...(lock.authoring?.controlPlaneFingerprint ? { 'x-lacify-base-fingerprint': lock.authoring.controlPlaneFingerprint } : {}),
+            ...(remoteBaseFingerprint ? { 'x-lacify-base-fingerprint': remoteBaseFingerprint } : {}),
           },
           body: JSON.stringify(contract),
         })
@@ -710,7 +717,7 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
       await client.request(`/api/projects/${encodeURIComponent(project.project.runtime.project)}/repository-source`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ fingerprint: project.fingerprint, baseFingerprint: lock.authoring?.controlPlaneFingerprint || null, revision }),
+        body: JSON.stringify({ fingerprint: project.fingerprint, baseFingerprint: remoteBaseFingerprint, revision }),
       })
       const environments = await client.request(`/api/projects/${encodeURIComponent(projectId)}/environments`)
       if (!environments.environments?.dev?.updatedAt) {
