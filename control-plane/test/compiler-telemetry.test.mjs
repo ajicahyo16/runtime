@@ -53,6 +53,8 @@ test('compiled runtime exposes deep Worker, Durable Object, and SQLite health', 
   assert.match(worker, /storageBytes: this\.sql\.databaseSize/)
   assert.match(worker, /sqliteReads: event\.sqliteReads/)
   assert.match(worker, /LACIFY_TELEMETRY_SAMPLING_RATE/)
+  assert.match(worker, /lacify\.actor_initialization_failed/)
+  assert.match(worker, /String\(error\?\.message \|\| 'unknown'\)\.slice\(0, 240\)/)
 })
 
 test('compiled runtime embeds forward-only authored migrations with immutable checksums', async () => {

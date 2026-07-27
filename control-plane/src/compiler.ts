@@ -129,6 +129,7 @@ function runtimeClass(contract: SourceContract) {
     this.env = env;
     this.storage = ctx.storage;
     this.sql = ctx.storage.sql;
+    try {
     this.sql.exec(\`CREATE TABLE IF NOT EXISTS _lacify_migrations (migration_id TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL);\`);
 ${migrations}
 ${tables}
@@ -140,6 +141,10 @@ ${tables}
     this.sql.exec(\`CREATE TABLE IF NOT EXISTS _lacify_operation_audit (id TEXT PRIMARY KEY, caller_identity_hash TEXT NOT NULL, operation TEXT NOT NULL, kind TEXT NOT NULL, outcome TEXT NOT NULL, status_code INTEGER NOT NULL, occurred_at INTEGER NOT NULL);\`);
     this.sql.exec(\`CREATE TABLE IF NOT EXISTS _lacify_outbox (event_id TEXT PRIMARY KEY, operation TEXT NOT NULL, partition_key TEXT NOT NULL, event_name TEXT NOT NULL, target TEXT NOT NULL, durability TEXT NOT NULL, payload TEXT NOT NULL, projection TEXT, routing TEXT, status TEXT NOT NULL CHECK (status IN ('pending', 'delivered', 'dead_letter')), attempts INTEGER NOT NULL DEFAULT 0, available_at INTEGER NOT NULL, last_error TEXT, created_at INTEGER NOT NULL, delivered_at INTEGER);\`);
     if (this.env.LACIFY_EVENT_SINK && typeof this.ctx.blockConcurrencyWhile === 'function') this.ctx.blockConcurrencyWhile(() => this.scheduleOutbox());
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'lacify.actor_initialization_failed', aggregateType: '${contract.aggregateType}', code: 'sqlite_initialization_failed', message: String(error?.message || 'unknown').slice(0, 240) }));
+      throw error;
+    }
   }
 
   async scheduleOutbox() {

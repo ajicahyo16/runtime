@@ -2078,15 +2078,15 @@ export default {
         if (existing && !retryableDeploymentStatuses.includes(existing.status) && !(existing.status === 'succeeded' && redeploy)) return respond({ success: false, message: `This ${environmentLabel} job cannot be retried from its current state.` }, 409)
         if (existing?.status === 'failed' && existing.runtime_url) {
           let recoveredResponse: Response | null = null
-          let recoveredPayload: { ok?: boolean } | null = null
+          let recoveredPayload: { ok?: boolean; deploymentId?: string; releaseId?: string } | null = null
           const recoveryDelays = [0, 2_000, 4_000, 8_000, 8_000, 8_000]
           for (const delay of recoveryDelays) {
             if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
             recoveredResponse = await fetch(`${existing.runtime_url}/health?deep=1`, { headers: { accept: 'application/json' } }).catch(() => null)
             recoveredPayload = recoveredResponse ? await recoveredResponse.json<{ ok?: boolean }>().catch(() => null) : null
-            if (recoveredResponse?.ok && recoveredPayload?.ok === true) break
+            if (recoveredResponse?.ok && recoveredPayload?.ok === true && recoveredPayload.deploymentId === existing.id && recoveredPayload.releaseId === releaseId) break
           }
-          if (recoveredResponse?.ok && recoveredPayload?.ok === true) {
+          if (recoveredResponse?.ok && recoveredPayload?.ok === true && recoveredPayload.deploymentId === existing.id && recoveredPayload.releaseId === releaseId) {
             const recoveredAt = now()
             const smokeCheck = { status: 'passed', message: 'Deep runtime health check passed after activation delay.', checkedAt: recoveredAt, url: `${existing.runtime_url}/health?deep=1` }
             const recoveredLogs = [...JSON.parse(existing.logs || '[]') as unknown[], deploymentLog('smoke_recovered', smokeCheck.message, recoveredAt)]
@@ -2215,13 +2215,13 @@ export default {
           const deployingLogs = [...logs, deploymentLog('uploaded', `Immutable Worker promoted to ${environmentLabel}.`), deploymentLog('smoke_started', `Running GET ${runtimeUrl}/health.`)]
           await env.DB.prepare('UPDATE deployment_jobs SET status = ?, runtime_url = ?, logs = ?, updated_at = ? WHERE id = ?').bind('deploying', runtimeUrl, JSON.stringify(deployingLogs), now(), deploymentId).run()
           let smokeResponse = await fetch(`${runtimeUrl}/health?deep=1`, { headers: { accept: 'application/json' } })
-          let smokePayload = await smokeResponse.json<{ ok?: boolean }>().catch(() => null)
-          for (let attempt = 0; attempt < 8 && (!smokeResponse.ok || smokePayload?.ok !== true); attempt += 1) {
+          let smokePayload = await smokeResponse.json<{ ok?: boolean; deploymentId?: string; releaseId?: string }>().catch(() => null)
+          for (let attempt = 0; attempt < 8 && (!smokeResponse.ok || smokePayload?.ok !== true || smokePayload.deploymentId !== deploymentId || smokePayload.releaseId !== releaseId); attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, Math.min(1_000 * (attempt + 1), 5_000)))
             smokeResponse = await fetch(`${runtimeUrl}/health?deep=1`, { headers: { accept: 'application/json' } })
-            smokePayload = await smokeResponse.json<{ ok?: boolean }>().catch(() => null)
+            smokePayload = await smokeResponse.json<{ ok?: boolean; deploymentId?: string; releaseId?: string }>().catch(() => null)
           }
-          const smokePassed = smokeResponse.ok && smokePayload?.ok === true
+          const smokePassed = smokeResponse.ok && smokePayload?.ok === true && smokePayload.deploymentId === deploymentId && smokePayload.releaseId === releaseId
           const smokeCheck = { status: smokePassed ? 'passed' : 'failed', message: smokePassed ? 'Runtime health check passed.' : `Runtime health check failed (${smokeResponse.status}).`, checkedAt: now(), url: `${runtimeUrl}/health` }
           const finalLogs = [...deployingLogs, deploymentLog(smokePassed ? 'smoke_passed' : 'smoke_failed', smokeCheck.message)]
           await env.DB.prepare('UPDATE deployment_jobs SET status = ?, smoke_check = ?, logs = ?, updated_at = ? WHERE id = ?').bind(smokePassed ? 'succeeded' : 'failed', JSON.stringify(smokeCheck), JSON.stringify(finalLogs), now(), deploymentId).run()

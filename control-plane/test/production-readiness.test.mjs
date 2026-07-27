@@ -71,6 +71,9 @@ test('allows bounded workers.dev propagation before failing runtime smoke', () =
   assert.equal(control.includes('Math.min(1_000 * (attempt + 1), 5_000)'), true)
   assert.match(control, /existing\.runtime_url\}\/health\?deep=1/)
   assert.match(control, /Deep runtime health check passed after activation delay/)
+  assert.match(control, /smokePayload\.deploymentId !== deploymentId/)
+  assert.match(control, /smokePayload\.releaseId !== releaseId/)
+  assert.match(control, /recoveredPayload\.deploymentId === existing\.id/)
 })
 
 test('serves browser security headers and redacted support diagnostics', () => {
