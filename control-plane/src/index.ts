@@ -2128,6 +2128,35 @@ export default {
           ])
           const form = new FormData()
           const classes = contracts.map((contract) => `${contract.aggregateType}DO`)
+          const previousDeployment = scriptExists
+            ? await env.DB.prepare(`
+                SELECT releases.manifest
+                FROM deployment_jobs
+                JOIN releases ON releases.id = deployment_jobs.release_id
+                WHERE deployment_jobs.project_id = ?
+                  AND deployment_jobs.environment = ?
+                  AND deployment_jobs.status = 'succeeded'
+                  AND deployment_jobs.release_id <> ?
+                ORDER BY deployment_jobs.updated_at DESC
+                LIMIT 1
+              `).bind(projectId, environment, releaseId).first<{ manifest: string }>()
+            : null
+          const currentReleasePreviouslySucceeded = existing?.status === 'succeeded'
+            || (existing
+              ? (JSON.parse(existing.logs || '[]') as Array<{ event?: string }>)
+                  .some((entry) => entry.event === 'smoke_passed' || entry.event === 'smoke_recovered')
+              : false)
+          const previousContracts = currentReleasePreviouslySucceeded
+            ? contracts
+            : previousDeployment
+              ? ((JSON.parse(previousDeployment.manifest) as { contracts?: Array<{ aggregateType: string }> }).contracts || [])
+              : []
+          const previousClasses = new Set(
+            previousContracts.map((contract) => `${contract.aggregateType}DO`),
+          )
+          const newClasses = scriptExists
+            ? classes.filter((className) => !previousClasses.has(className))
+            : classes
           const telemetryBaseUrl = (env.PUBLIC_BASE_URL || new URL(request.url).origin).replace(/\/$/, '')
           const observabilityPolicy = await env.DB.prepare('SELECT sampling_rate FROM observability_policies WHERE workspace_id = ?').bind(workspaceId).first<{ sampling_rate: number }>()
           const applicationCredentials = await env.DB.prepare(`SELECT id, token_hash, capabilities, expires_at
@@ -2160,7 +2189,12 @@ export default {
               { name: 'LACIFY_TELEMETRY_SAMPLING_RATE', type: 'plain_text', text: String(observabilityPolicy?.sampling_rate ?? 1) },
               { name: 'LACIFY_APPLICATION_ACCESS_POLICY', type: 'secret_text', text: JSON.stringify(applicationAccessPolicy) },
             ],
-            ...(scriptExists ? {} : { migrations: { tag: 'v1', new_sqlite_classes: classes } }),
+            ...(newClasses.length > 0 ? {
+              migrations: {
+                tag: scriptExists ? `release_${release.checksum.slice(0, 16)}` : 'v1',
+                new_sqlite_classes: newClasses,
+              },
+            } : {}),
           }
           form.set('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }))
           const moduleWorker = generatedWorkerJavaScript(worker)

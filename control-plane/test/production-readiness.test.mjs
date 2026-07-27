@@ -56,6 +56,16 @@ test('uses workspace Uplink credentials for application and CLI deployments', ()
   assert.equal(source.includes('SELECT token_envelope FROM uplink_connections WHERE workspace_id = ? AND account_id = ?'), true)
 })
 
+test('adds a Durable Object migration when an existing Worker gains an Actor class', () => {
+  assert.match(control, /deployment_jobs\.status = 'succeeded'/)
+  assert.match(control, /existing\?\.status === 'succeeded'/)
+  assert.match(control, /entry\.event === 'smoke_passed'/)
+  assert.match(control, /const previousClasses = new Set/)
+  assert.match(control, /classes\.filter\(\(className\) => !previousClasses\.has\(className\)\)/)
+  assert.match(control, /tag: scriptExists \? `release_\$\{release\.checksum\.slice\(0, 16\)\}` : 'v1'/)
+  assert.match(control, /new_sqlite_classes: newClasses/)
+})
+
 test('allows bounded workers.dev propagation before failing runtime smoke', () => {
   assert.equal(control.includes('attempt < 8'), true)
   assert.equal(control.includes('Math.min(1_000 * (attempt + 1), 5_000)'), true)
