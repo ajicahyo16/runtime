@@ -126,19 +126,31 @@ export async function diagnoseProject({ root, project, plans, tests, lock, envir
     try {
       const projectId = project.project.runtime.project
       const visible = await remote.request('/api/projects')
-      const found = (visible.projects || []).some(({ id }) => id === projectId)
-      checks.push(found
+      const remoteProject = (visible.projects || []).find(({ id }) => id === projectId)
+      const found = Boolean(remoteProject)
+      checks.push(remoteProject
         ? check('remote-project', 'pass', 'Project is visible through the authenticated Control Plane scope.')
         : check('remote-project', 'fail', 'Project is not visible through the authenticated Control Plane scope.'))
       if (found) {
-        const [overview, access] = await Promise.all([
-          remote.request(`/api/monitor-overview?project=${encodeURIComponent(projectId)}`),
+        const [releases, access] = await Promise.all([
+          remote.request(`/api/projects/${encodeURIComponent(projectId)}/releases`),
           remote.request(`/api/projects/${encodeURIComponent(projectId)}/runtime-credentials`),
         ])
-        const development = (overview.environments || []).find(({ environment: name }) => name === 'dev')
-        checks.push(development?.deployment?.status === 'succeeded' && typeof development.deployment.runtimeUrl === 'string'
-          ? check('remote-development', 'pass', `Remote Development deployment ${development.deployment.id} succeeded.`)
-          : check('remote-development', 'fail', 'No succeeded remote Development deployment is available.'))
+        const remoteFingerprint = remoteProject.sourceFingerprint || remoteProject.source_fingerprint || null
+        const sourceSynced = remoteFingerprint === project.fingerprint
+        checks.push(sourceSynced
+          ? check('remote-source', 'pass', `Control Plane source matches fingerprint ${project.fingerprint.slice(0, 12)}.`)
+          : check('remote-source', 'fail', 'Control Plane source is stale. Run lacify sync with the approved review.'))
+        const matchingRelease = (releases.releases || []).find((release) => release.manifest?.sourceFingerprint === project.fingerprint)
+        const deployments = matchingRelease
+          ? await remote.request(`/api/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(matchingRelease.id)}/deployments`)
+          : { deployments: [] }
+        const development = (deployments.deployments || []).find(({ environment: name }) => name === 'dev')
+        checks.push(development?.status === 'succeeded'
+          ? check('remote-development', 'pass', `Current source is deployed through ${development.id}.`)
+          : check('remote-development', 'fail', matchingRelease
+            ? 'The release for the current source is not deployed successfully to Development.'
+            : 'No immutable release exists for the current source. Run lacify ship development with the approved review.'))
         const active = (access.credentials || []).filter((credential) =>
           credential.environment === 'dev' && !credential.revokedAt && credential.expiresAt > Date.now())
         checks.push(active.length
@@ -154,6 +166,8 @@ export async function diagnoseProject({ root, project, plans, tests, lock, envir
 
   return {
     ready: checks.every(({ status }) => status !== 'fail'),
+    localReady: checks.filter(({ id }) => !id.startsWith('remote-') && id !== 'control-plane').every(({ status }) => status !== 'fail'),
+    remoteReady: remote ? checks.filter(({ id }) => id.startsWith('remote-') || id === 'control-plane').every(({ status }) => status !== 'fail') : null,
     project: project.project.runtime.project,
     projectFingerprint: project.fingerprint,
     checks,

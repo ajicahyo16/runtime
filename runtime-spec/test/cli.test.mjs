@@ -10,6 +10,19 @@ function capture() {
   return { io: { stdout: { write: (value) => { stdout += value } } }, value: () => stdout }
 }
 
+test('CLI help exposes the golden Development path', async () => {
+  const stream = capture()
+  assert.equal(await runCli(['--help', '--json'], stream.io), 0)
+  const result = JSON.parse(stream.value())
+  assert.equal(result.goldenPath, 'lacify ship development --review <review-id> --approve')
+  assert.ok(result.commands.includes('sync'))
+  assert.ok(result.commands.includes('ship'))
+
+  const commandHelp = capture()
+  assert.equal(await runCli(['ship', '--help', '--json'], commandHelp.io), 0)
+  assert.match(JSON.parse(commandHelp.value()).usage, /ship development/)
+})
+
 test('CLI initializes, validates, plans, applies, reports status, migrations, and health', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'lacify-cli-'))
   for (const [command, args = []] of [
@@ -105,6 +118,50 @@ test('review receipt binds source files, tests, and migration plans before Devel
   const applied = capture()
   assert.equal(await runCli(['apply-review', '--review', result.receipt.reviewId, '--approve', '--json'], applied.io, root), 0)
   assert.equal(JSON.parse(applied.value()).reviewedBy, result.receipt.reviewId)
+})
+
+test('sync publishes an approved source without compiling or deploying a release', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lacify-sync-'))
+  await runCli(['init', '--project', 'sync-project', '--template', 'personal'], capture().io, root)
+  const reviewed = capture()
+  await runCli(['review', '--json'], reviewed.io, root)
+  const reviewId = JSON.parse(reviewed.value()).receipt.reviewId
+  const calls = []
+  const remoteClient = async () => ({
+    request: async (route, init = {}) => {
+      calls.push([route, init.method || 'GET'])
+      if (route === '/api/projects') return { projects: [{ id: 'sync-project' }] }
+      if (route.endsWith('/contracts')) return { contracts: [] }
+      if (route.endsWith('/environments')) return { environments: { dev: { updatedAt: 1 } } }
+      return { success: true }
+    },
+  })
+  const synced = capture()
+  assert.equal(await runCli(['sync', '--review', reviewId, '--approve', '--json'], synced.io, root, { remoteClient }), 0)
+  const result = JSON.parse(synced.value())
+  assert.equal(result.remote.synced, true)
+  assert.equal(result.remote.release, undefined)
+  assert.ok(calls.some(([route, method]) => route.endsWith('/repository-source') && method === 'PUT'))
+  assert.equal(calls.some(([route, method]) => route.endsWith('/releases') && method === 'POST'), false)
+})
+
+test('remote status is not ready when source or Development deployment is stale', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lacify-remote-status-'))
+  await runCli(['init', '--project', 'status-project'], capture().io, root)
+  await runCli(['apply', '--approve'], capture().io, root)
+  const remoteClient = async () => ({
+    request: async (route) => {
+      if (route === '/api/projects') return { projects: [{ id: 'status-project', source_fingerprint: '0'.repeat(64) }] }
+      if (route.endsWith('/releases')) return { releases: [] }
+      throw new Error(`Unexpected route ${route}`)
+    },
+  })
+  const stream = capture()
+  assert.equal(await runCli(['status', '--remote', '--json'], stream.io, root, { remoteClient }), 2)
+  const result = JSON.parse(stream.value())
+  assert.equal(result.ready, false)
+  assert.equal(result.remote.sourceSynced, false)
+  assert.equal(result.remote.deploymentCurrent, false)
 })
 
 test('reviewed apply blocks changed repository files and stale receipt replay', async () => {

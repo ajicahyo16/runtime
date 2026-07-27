@@ -124,12 +124,34 @@ async function runOperationTestsForReview(root, dependencies) {
 
 export async function runCli(argv, io = process, cwd = process.cwd(), dependencies = {}) {
   const args = [...argv]
-  const command = args.shift() || 'help'
+  let command = args.shift() || 'help'
+  const requestedCommand = command
+  if (command === '--help' || command === '-h') command = 'help'
+  if (args.includes('--help') || args.includes('-h')) {
+    const subject = command
+    const help = {
+      status: 'lacify status [--remote] [--json]',
+      sync: 'lacify sync --review <review-id> --approve [--json]',
+      ship: 'lacify ship development --review <review-id> --approve [--json]',
+      'apply-review': 'lacify apply-review --review <review-id> --approve [--remote] [--json]',
+      doctor: 'lacify doctor [--remote] [--json]',
+    }
+    output(io, args.includes('--json'), { command: subject, usage: help[subject] || `lacify ${subject}` }, help[subject] || `Usage: lacify ${subject}`)
+    return 0
+  }
+  if (command === 'sync' || command === 'ship') {
+    if (command === 'ship' && args[0] && args[0] !== 'development') throw new Error('Golden-path ship currently supports only Development.')
+    if (command === 'ship' && args[0] === 'development') args.shift()
+    command = 'apply-review'
+    if (!args.includes('--remote')) args.push('--remote')
+    if (requestedCommand === 'sync' && !args.includes('--sync-only')) args.push('--sync-only')
+  }
   const json = args.includes('--json')
   const root = path.resolve(String(option(args, 'cwd', cwd)))
 
   if (command === 'help') {
-    output(io, json, { commands: ['login', 'logout', 'init', 'realtime', 'mcp-config', 'workspace-init', 'workspace-add', 'workspace-list', 'workspace-status', 'workspace-module-matrix', 'workspace-mcp-config', 'blueprint-export', 'blueprints', 'blueprint-info', 'blueprint-plan', 'blueprint-create', 'modules', 'module-plan', 'add', 'module-status', 'module-upgrade-plan', 'upgrade', 'validate', 'plan', 'review', 'apply-review', 'apply', 'pull', 'status', 'migrations', 'health', 'generate', 'integrate', 'doctor', 'snapshot', 'snapshots', 'verify-snapshot', 'rehearse-restore', 'archive-create', 'archive-info', 'archive-verify', 'archive-restore', 'test', 'dev'] }, 'Usage: lacify <login|logout|init|realtime|mcp-config|workspace-init|workspace-add|workspace-list|workspace-status|workspace-module-matrix|workspace-mcp-config|blueprint-export|blueprints|blueprint-info|blueprint-plan|blueprint-create|modules|module-plan|add|module-status|module-upgrade-plan|upgrade|validate|plan|review|apply-review|apply|pull|status|migrations|health|generate|integrate|doctor|snapshot|snapshots|verify-snapshot|rehearse-restore|archive-create|archive-info|archive-verify|archive-restore|test|dev> [--env development] [--json]')
+    const commands = ['login', 'logout', 'init', 'realtime', 'mcp-config', 'workspace-init', 'workspace-add', 'workspace-list', 'workspace-status', 'workspace-module-matrix', 'workspace-mcp-config', 'blueprint-export', 'blueprints', 'blueprint-info', 'blueprint-plan', 'blueprint-create', 'modules', 'module-plan', 'add', 'module-status', 'module-upgrade-plan', 'upgrade', 'validate', 'plan', 'review', 'sync', 'ship', 'apply-review', 'apply', 'pull', 'status', 'migrations', 'health', 'generate', 'integrate', 'doctor', 'snapshot', 'snapshots', 'verify-snapshot', 'rehearse-restore', 'archive-create', 'archive-info', 'archive-verify', 'archive-restore', 'test', 'dev']
+    output(io, json, { commands, goldenPath: 'lacify ship development --review <review-id> --approve' }, `Lacify Runtime\n\nGolden path:\n  lacify review\n  lacify ship development --review <review-id> --approve\n\nInspect without mutation:\n  lacify status --remote\n  lacify doctor --remote\n\nRun lacify <command> --help for command usage.`)
     return 0
   }
 
@@ -698,24 +720,64 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
           body: JSON.stringify({ variables: {} }),
         })
       }
-      const compiled = await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases`, { method: 'POST' })
-      const verification = await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(compiled.release.id)}/verify`, { method: 'POST' })
-      const deployment = await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(compiled.release.id)}/deployments`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ environment: 'dev' }),
-      })
-      remoteResult = { release: { ...compiled.release, status: verification.releaseStatus }, deployment: deployment.deployment }
+      if (args.includes('--sync-only')) {
+        remoteResult = { synced: true, project: projectId, fingerprint: project.fingerprint }
+      } else {
+        const compiled = await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases`, { method: 'POST' })
+        const verification = await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(compiled.release.id)}/verify`, { method: 'POST' })
+        const deployment = await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(compiled.release.id)}/deployments`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ environment: 'dev' }),
+        })
+        remoteResult = { synced: true, release: { ...compiled.release, status: verification.releaseStatus }, deployment: deployment.deployment }
+      }
     }
     const generatedClient = await generateTypeScriptClient(project, path.join(root, 'generated', 'lacify'))
-    output(io, json, { applied: true, environment, revision, reviewedBy, results, remote: remoteResult, generatedClient }, `Applied ${results.flatMap(({ migrations }) => migrations).length} migration(s) to Development${reviewedBy ? ` from ${reviewedBy}` : ''}${remoteResult ? ' and started the immutable remote Development deployment' : ''}; generated the TypeScript client.`)
+    const remoteMessage = remoteResult?.deployment
+      ? ' synchronized the Control Plane and deployed the immutable release to Development'
+      : remoteResult?.synced
+        ? ' and synchronized the reviewed source to the Control Plane'
+        : ''
+    output(io, json, { applied: true, environment, revision, reviewedBy, workflow: requestedCommand, results, remote: remoteResult, generatedClient }, `Applied ${results.flatMap(({ migrations }) => migrations).length} migration(s) to Development${reviewedBy ? ` from ${reviewedBy}` : ''}${remoteMessage}; generated the TypeScript client.`)
     return 0
   }
 
   if (command === 'status') {
     const status = lock.projectFingerprint ? authoring.status : 'untracked'
-    output(io, json, { project: project.project.runtime.project, environment, projectFingerprint: project.fingerprint, baseRevision: lock.baseRevision, drift: status, authoring }, `Status: ${status} (${environment}).`)
-    return 0
+    let remoteStatus = null
+    if (args.includes('--remote')) {
+      const client = await (dependencies.remoteClient || remoteClient)()
+      const projectId = project.project.runtime.project
+      const visible = await client.request('/api/projects')
+      const remoteProject = (visible.projects || []).find(({ id }) => id === projectId)
+      if (!remoteProject) {
+        remoteStatus = { visible: false, sourceSynced: false, deploymentCurrent: false }
+      } else {
+        const remoteFingerprint = remoteProject.sourceFingerprint || remoteProject.source_fingerprint || null
+        const releases = await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases`)
+        const matchingRelease = (releases.releases || []).find((release) => release.manifest?.sourceFingerprint === project.fingerprint)
+        const deployments = matchingRelease
+          ? await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(matchingRelease.id)}/deployments`)
+          : { deployments: [] }
+        const development = (deployments.deployments || []).find(({ environment: name }) => name === 'dev')
+        remoteStatus = {
+          visible: true,
+          sourceFingerprint: remoteFingerprint,
+          sourceSynced: remoteFingerprint === project.fingerprint,
+          actorCount: matchingRelease?.manifest?.contracts?.length ?? null,
+          releaseId: matchingRelease?.id || null,
+          deploymentId: development?.id || null,
+          deploymentCurrent: development?.status === 'succeeded',
+          deploymentStatus: development?.status || 'not-deployed',
+        }
+      }
+    }
+    const ready = status === 'clean' && (!remoteStatus || (remoteStatus.sourceSynced && remoteStatus.deploymentCurrent))
+    output(io, json, { ready, project: project.project.runtime.project, environment, projectFingerprint: project.fingerprint, baseRevision: lock.baseRevision, drift: status, authoring, remote: remoteStatus }, remoteStatus
+      ? `Local: ${status}. Control Plane: ${remoteStatus.sourceSynced ? 'synced' : 'out of sync'}. Development: ${remoteStatus.deploymentCurrent ? 'current' : remoteStatus.deploymentStatus}.`
+      : `Status: ${status} (${environment}).`)
+    return ready ? 0 : 2
   }
 
   if (command === 'migrations') {
