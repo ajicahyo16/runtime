@@ -529,7 +529,7 @@ function applicationAccessPolicy(env) {
   }
 }
 
-async function authorizeOperation(request, env, actor, operation) {
+async function authorizeCredential(request, env) {
   const authorization = request.headers.get('authorization') || '';
   const match = authorization.match(/^Bearer (lacify_runtime_[A-Za-z0-9_-]{40,100})$/);
   if (!match) return { error: Response.json({ success: false, error: { code: 'application_authentication_required', message: 'Application authentication is required.' } }, { status: 401 }) };
@@ -538,6 +538,13 @@ async function authorizeOperation(request, env, actor, operation) {
   const tokenHash = await sha256Text(match[1]);
   const credential = policy.credentials.find((candidate) => candidate?.tokenHash === tokenHash);
   if (!credential || !Number.isSafeInteger(credential.expiresAt) || credential.expiresAt <= Date.now()) return { error: Response.json({ success: false, error: { code: 'application_credential_invalid', message: 'Application credential is invalid or expired.' } }, { status: 401 }) };
+  return { credential };
+}
+
+async function authorizeOperation(request, env, actor, operation) {
+  const authorized = await authorizeCredential(request, env);
+  if (authorized.error) return authorized;
+  const credential = authorized.credential;
   const capability = Array.isArray(credential.capabilities) ? credential.capabilities.find((candidate) => candidate?.actor === actor && Array.isArray(candidate.operations) && candidate.operations.includes(operation)) : null;
   if (!capability) return { error: Response.json({ success: false, error: { code: 'operation_forbidden', message: 'Application credential does not allow this operation.' } }, { status: 403 }) };
   const rateLimitPerMinute = Number(capability.rateLimitPerMinute);
@@ -617,6 +624,19 @@ function queueRuntimeTelemetry(env, event) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname === '/__lacify/access' && request.method === 'GET') {
+      const authorized = await authorizeCredential(request, env);
+      if (authorized.error) return authorized.error;
+      return Response.json({
+        success: true,
+        environment: env.LACIFY_ENVIRONMENT,
+        deploymentId: env.LACIFY_DEPLOYMENT_ID,
+        capabilities: authorized.credential.capabilities.map((capability) => ({
+          actor: capability.actor,
+          operations: capability.operations,
+        })),
+      });
+    }
     if (url.pathname === '/health' && request.method === 'GET') {
       const layers = [{ layer: 'worker', ok: true, durationMs: 0 }];
       if (url.searchParams.get('deep') === '1') await Promise.all([

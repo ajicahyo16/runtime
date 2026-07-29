@@ -25,7 +25,15 @@ export async function remoteClient({ fetchImpl = fetch, credentialReader = readC
       headers: { accept: 'application/json', authorization: `Bearer ${token}`, ...init.headers },
     })
     const data = await response.json().catch(() => null)
-    if (!response.ok) throw new Error(data?.message || `Control Plane request failed (${response.status}).`)
+    if (!response.ok) {
+      const error = new Error(data?.message || `Control Plane request failed (${response.status}).`)
+      error.name = 'LacifyControlPlaneError'
+      error.status = response.status
+      error.code = data?.error?.code || data?.code || 'control_plane_request_failed'
+      error.retryable = response.status === 429 || response.status >= 500
+        || /D1 DB exceeded its CPU time limit|temporar|timeout|reset/i.test(error.message)
+      throw error
+    }
     return data
   }
   return { profile, request }

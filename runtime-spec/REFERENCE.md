@@ -159,6 +159,23 @@ Remote execution is limited to the succeeded Development runtime URL reported by
 
 ## Runtime application credentials
 
+Use `lacify credential-rotate development` to issue a replacement credential
+for the current canonical operation surface. The command requires explicit
+approval and an absolute token-file path outside the repository. It never
+prints the plaintext token. Credential activation remains governed by a
+subsequent Development ship, and revocation should happen only after the new
+backend secret passes a smoke test.
+
+`lacify ship development` performs an operation-level capability preflight
+when active credentials exist. Missing capability coverage blocks the release
+before deployment and reports bounded `Actor.Operation` metadata only.
+
+The generated runtime exposes `GET /__lacify/access`. It requires the scoped
+application bearer token and returns only environment, deployment identity,
+and allowed operation names. `lacify doctor --remote` uses this endpoint for
+an end-to-end authentication and coverage check without executing an Actor
+operation or returning business rows.
+
 Operation routes require a `Bearer lacify_runtime_*` credential. A credential belongs to one workspace, project, and environment and contains one or more Actor capabilities:
 
 ```json

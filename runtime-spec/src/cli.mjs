@@ -23,6 +23,7 @@ import { installModule, listModules, moduleStatus, planModuleInstall, planModule
 import { createEncryptedArchive, inspectEncryptedArchive, restoreEncryptedArchive, verifyEncryptedArchive } from './encrypted-archive.mjs'
 import { addWorkspaceProject, initializeWorkspace, selectWorkspaceProject, workspaceModuleMatrix, workspaceProjects } from './workspace-catalog.mjs'
 import { createBlueprintProject, exportProjectBlueprint, inspectProjectBlueprint, listProjectBlueprints, planBlueprintProject } from './project-blueprint.mjs'
+import { credentialCoverage, readShipState, saveShipState, withShipRetry } from './ship-workflow.mjs'
 
 function option(args, name, fallback = null) {
   const index = args.indexOf(`--${name}`)
@@ -135,6 +136,7 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
       ship: 'lacify ship development --review <review-id> --approve [--json]',
       'apply-review': 'lacify apply-review --review <review-id> --approve [--remote] [--json]',
       doctor: 'lacify doctor [--remote] [--json]',
+      'credential-rotate': 'lacify credential-rotate development --name <name> --token-file </protected/path> --approve [--json]',
     }
     output(io, args.includes('--json'), { command: subject, usage: help[subject] || `lacify ${subject}` }, help[subject] || `Usage: lacify ${subject}`)
     return 0
@@ -150,7 +152,7 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
   const root = path.resolve(String(option(args, 'cwd', cwd)))
 
   if (command === 'help') {
-    const commands = ['login', 'logout', 'init', 'realtime', 'mcp-config', 'workspace-init', 'workspace-add', 'workspace-list', 'workspace-status', 'workspace-module-matrix', 'workspace-mcp-config', 'blueprint-export', 'blueprints', 'blueprint-info', 'blueprint-plan', 'blueprint-create', 'modules', 'module-plan', 'add', 'module-status', 'module-upgrade-plan', 'upgrade', 'validate', 'plan', 'review', 'sync', 'ship', 'apply-review', 'apply', 'pull', 'status', 'migrations', 'health', 'generate', 'integrate', 'doctor', 'snapshot', 'snapshots', 'verify-snapshot', 'rehearse-restore', 'archive-create', 'archive-info', 'archive-verify', 'archive-restore', 'test', 'dev']
+    const commands = ['login', 'logout', 'init', 'realtime', 'mcp-config', 'workspace-init', 'workspace-add', 'workspace-list', 'workspace-status', 'workspace-module-matrix', 'workspace-mcp-config', 'blueprint-export', 'blueprints', 'blueprint-info', 'blueprint-plan', 'blueprint-create', 'modules', 'module-plan', 'add', 'module-status', 'module-upgrade-plan', 'upgrade', 'validate', 'plan', 'review', 'sync', 'ship', 'credential-rotate', 'apply-review', 'apply', 'pull', 'status', 'migrations', 'health', 'generate', 'integrate', 'doctor', 'snapshot', 'snapshots', 'verify-snapshot', 'rehearse-restore', 'archive-create', 'archive-info', 'archive-verify', 'archive-restore', 'test', 'dev']
     output(io, json, { commands, goldenPath: 'lacify ship development --review <review-id> --approve' }, `Lacify Runtime\n\nGolden path:\n  lacify review\n  lacify ship development --review <review-id> --approve\n\nInspect without mutation:\n  lacify status --remote\n  lacify doctor --remote\n\nRun lacify <command> --help for command usage.`)
     return 0
   }
@@ -409,6 +411,49 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
   const project = await loadRuntimeProject(runtimePath(root))
   if (!project.valid) throw Object.assign(new Error('Project validation failed.'), { diagnostics: project.issues })
 
+  if (command === 'credential-rotate') {
+    if (args[0] && args[0] !== 'development') throw new Error('Credential rotation currently supports only Development.')
+    if (!args.includes('--approve')) throw new Error('Explicit approval required before issuing a scoped runtime credential.')
+    const name = String(option(args, 'name', '')).trim()
+    const tokenFile = path.resolve(String(option(args, 'token-file', '')))
+    if (!name) throw new Error('--name is required.')
+    if (!option(args, 'token-file', null) || !path.isAbsolute(String(option(args, 'token-file')))) {
+      throw new Error('--token-file must be an explicit absolute path outside the repository.')
+    }
+    const relativeTokenFile = path.relative(root, tokenFile)
+    if (relativeTokenFile === '' || (!relativeTokenFile.startsWith('..') && !path.isAbsolute(relativeTokenFile))) {
+      throw new Error('--token-file must be outside the project repository.')
+    }
+    const client = await (dependencies.remoteClient || remoteClient)()
+    const capabilities = project.project.actors.map((actor) => ({
+      actor: actor.definition.name,
+      operations: actor.operations.map(({ definition }) => definition.name),
+      rateLimitPerMinute: Number(option(args, 'rate-limit', 60)),
+      maxPayloadBytes: Number(option(args, 'max-payload-bytes', 32_768)),
+    }))
+    const created = await client.request(`/api/projects/${encodeURIComponent(project.project.runtime.project)}/runtime-credentials`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        environment: 'dev',
+        expiresInDays: Number(option(args, 'expires-in-days', 90)),
+        capabilities,
+      }),
+    })
+    await mkdir(path.dirname(tokenFile), { recursive: true, mode: 0o700 })
+    await writeFile(tokenFile, `${created.credential.token}\n`, { mode: 0o600 })
+    output(io, json, {
+      created: true,
+      credentialId: created.credential.id,
+      operationCount: capabilities.reduce((sum, capability) => sum + capability.operations.length, 0),
+      tokenFile,
+      tokenReturned: false,
+      next: 'Update the backend secret from the protected token file, rerun lacify ship development, smoke test, then revoke the old credential.',
+    }, `Created ${name} with ${capabilities.reduce((sum, capability) => sum + capability.operations.length, 0)} operation(s). Token saved with mode 0600 to ${tokenFile}; its value was not printed. Update the backend secret, rerun ship, smoke test, then revoke the old credential.`)
+    return 0
+  }
+
   if (command === 'modules') {
     const modules = await listModules()
     output(io, json, { modules }, `${modules.length} reusable Actor extension module(s).`)
@@ -625,6 +670,7 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
       lock,
       environment: dependencies.environment || process.env,
       remote,
+      fetchImpl: dependencies.fetchImpl || fetch,
     })
     output(io, json, result, `${result.ready ? 'Ready' : 'Not ready'}: ${result.checks.filter(({ status }) => status === 'pass').length} passed, ${result.checks.filter(({ status }) => status === 'warning').length} warning(s), ${result.checks.filter(({ status }) => status === 'fail').length} blocker(s).`)
     return result.ready ? 0 : 2
@@ -719,6 +765,23 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ fingerprint: project.fingerprint, baseFingerprint: remoteBaseFingerprint, revision }),
       })
+      const shipBinding = {
+        projectFingerprint: project.fingerprint,
+        reviewId: reviewedBy,
+      }
+      let shipState = requestedCommand === 'ship'
+        ? await readShipState(root, shipBinding)
+        : null
+      const resumePhase = shipState?.phase || null
+      if (requestedCommand === 'ship') {
+        shipState = {
+          ...shipState,
+          ...shipBinding,
+          phase: 'source_synced',
+          resumedFrom: resumePhase,
+        }
+        await saveShipState(root, shipState)
+      }
       const environments = await client.request(`/api/projects/${encodeURIComponent(projectId)}/environments`)
       if (!environments.environments?.dev?.updatedAt) {
         await client.request(`/api/projects/${encodeURIComponent(projectId)}/environments/dev/config`, {
@@ -730,21 +793,82 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
       if (args.includes('--sync-only')) {
         remoteResult = { synced: true, project: projectId, fingerprint: project.fingerprint }
       } else {
-        const compiled = await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases`, { method: 'POST' })
-        const verification = await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(compiled.release.id)}/verify`, { method: 'POST' })
-        const deployment = await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(compiled.release.id)}/deployments`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          // `ship` is also the activation path for runtime application
-          // credential policy changes. Reusing an already healthy deployment
-          // would leave newly issued or revoked credentials out of the
-          // immutable policy.
-          body: JSON.stringify({
-            environment: 'dev',
-            ...(requestedCommand === 'ship' ? { redeploy: true } : {}),
+        const access = await client.request(`/api/projects/${encodeURIComponent(projectId)}/runtime-credentials`)
+        const credentialPreflight = credentialCoverage(project, access.credentials || [])
+        if (credentialPreflight.activeCredentialCount > 0 && !credentialPreflight.covered) {
+          const preview = credentialPreflight.missing
+            .slice(0, 8)
+            .map(({ actor, operation }) => `${actor}.${operation}`)
+            .join(', ')
+          throw new Error(`Runtime credential coverage is stale. Missing ${credentialPreflight.missing.length} operation(s): ${preview}${credentialPreflight.missing.length > 8 ? ', …' : ''}. Rotate the backend credential, then rerun the same ship command.`)
+        }
+        const retryEvents = []
+        const retry = (action) => withShipRetry(action, {
+          onRetry: ({ attempt, nextAttempt, error }) => retryEvents.push({
+            attempt,
+            nextAttempt,
+            code: error?.code || 'transient_ship_failure',
           }),
         })
-        remoteResult = { synced: true, release: { ...compiled.release, status: verification.releaseStatus }, deployment: deployment.deployment }
+        let compiled = null
+        if (shipState?.releaseId && ['release_compiled', 'release_verified', 'deployed'].includes(resumePhase)) {
+          const existingReleases = await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases`)
+          const existingRelease = (existingReleases.releases || []).find(({ id }) => id === shipState.releaseId)
+          if (existingRelease) compiled = { release: existingRelease }
+        }
+        if (!compiled) {
+          compiled = await retry(() =>
+            client.request(`/api/projects/${encodeURIComponent(projectId)}/releases`, { method: 'POST' }))
+        }
+        if (requestedCommand === 'ship') {
+          shipState = { ...shipState, ...shipBinding, phase: 'release_compiled', releaseId: compiled.release.id }
+          await saveShipState(root, shipState)
+        }
+        const verification = ['release_verified', 'deployed'].includes(resumePhase)
+          ? { releaseStatus: 'verified' }
+          : await retry(() =>
+            client.request(`/api/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(compiled.release.id)}/verify`, { method: 'POST' }))
+        if (requestedCommand === 'ship') {
+          shipState = { ...shipState, phase: 'release_verified' }
+          await saveShipState(root, shipState)
+        }
+        const deployment = await retry(async () => {
+          const result = await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(compiled.release.id)}/deployments`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            // `ship` is also the activation path for runtime application
+            // credential policy changes. Reusing an already healthy deployment
+            // would leave newly issued or revoked credentials out of the
+            // immutable policy.
+            body: JSON.stringify({
+              environment: 'dev',
+              ...(requestedCommand === 'ship' ? { redeploy: true } : {}),
+            }),
+          })
+          if (result.deployment?.status === 'failed') {
+            const failure = new Error(result.deployment.message || 'Development deployment failed transiently.')
+            failure.retryable = result.deployment.retryable !== false
+            failure.code = result.deployment.code || 'deployment_failed'
+            throw failure
+          }
+          return result
+        })
+        if (requestedCommand === 'ship') {
+          shipState = {
+            ...shipState,
+            phase: 'deployed',
+            deploymentId: deployment.deployment.id,
+          }
+          await saveShipState(root, shipState)
+        }
+        remoteResult = {
+          synced: true,
+          release: { ...compiled.release, status: verification.releaseStatus },
+          deployment: deployment.deployment,
+          credentialPreflight,
+          retryEvents,
+          resumedFrom: shipState?.resumedFrom || null,
+        }
       }
     }
     const generatedClient = await generateTypeScriptClient(project, path.join(root, 'generated', 'lacify'))

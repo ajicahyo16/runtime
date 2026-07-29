@@ -6,6 +6,7 @@ import { integrationManifest } from './integration-generator.mjs'
 import { createReviewReceipt } from './review-receipt.mjs'
 import { listLocalSnapshots, verifyLocalSnapshot } from './local-backup.mjs'
 import { moduleStatus } from './module-system.mjs'
+import { credentialCoverage } from './ship-workflow.mjs'
 
 async function exists(file) {
   try { await access(file); return true } catch { return false }
@@ -59,7 +60,33 @@ function environmentCheck(environment) {
   return check('server-environment', 'pass', 'Server-only runtime environment is configured; values were not read into the report.')
 }
 
-export async function diagnoseProject({ root, project, plans, tests, lock, environment = process.env, remote = null }) {
+async function runtimeAccessCheck(project, environment, fetchImpl) {
+  if (!environment.LACIFY_RUNTIME_URL || !environment.LACIFY_RUNTIME_TOKEN) return null
+  try {
+    const response = await fetchImpl(
+      `${environment.LACIFY_RUNTIME_URL.replace(/\/$/, '')}/__lacify/access`,
+      { headers: { authorization: `Bearer ${environment.LACIFY_RUNTIME_TOKEN}` } },
+    )
+    const body = await response.json().catch(() => null)
+    if (!response.ok) {
+      const code = body?.error?.code || `http_${response.status}`
+      return check('runtime-access-e2e', 'fail', `Runtime credential probe failed with ${code}; no business operation was executed.`)
+    }
+    const coverage = credentialCoverage(project, [{
+      environment: 'dev',
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      revokedAt: null,
+      capabilities: body?.capabilities || [],
+    }], 0)
+    return coverage.covered
+      ? check('runtime-access-e2e', 'pass', 'Configured runtime credential authenticated and covers every declared operation; no business rows were read.')
+      : check('runtime-access-e2e', 'fail', `Configured runtime credential is missing ${coverage.missing.length} declared operation(s).`)
+  } catch {
+    return check('runtime-access-e2e', 'fail', 'Runtime credential probe could not reach the configured runtime.')
+  }
+}
+
+export async function diagnoseProject({ root, project, plans, tests, lock, environment = process.env, remote = null, fetchImpl = fetch }) {
   const checks = [
     check('project-files', 'pass', `Validated ${project.project.actors.length} Actor(s) at fingerprint ${project.fingerprint.slice(0, 12)}.`),
     tests.passed === true
@@ -99,6 +126,10 @@ export async function diagnoseProject({ root, project, plans, tests, lock, envir
     ? check('mcp-server', 'pass', 'Lacify MCP executable is available for this repository.')
     : check('mcp-server', 'fail', 'Lacify MCP executable is missing.'))
   checks.push(environmentCheck(environment))
+  if (remote) {
+    const runtimeAccess = await runtimeAccessCheck(project, environment, fetchImpl)
+    if (runtimeAccess) checks.push(runtimeAccess)
+  }
 
   const installedModules = await moduleStatus({ root, project })
   const customizedModules = installedModules.modules.filter(({ state }) => state === 'customized' || state === 'unresolved')
@@ -153,9 +184,12 @@ export async function diagnoseProject({ root, project, plans, tests, lock, envir
             : 'No immutable release exists for the current source. Run lacify ship development with the approved review.'))
         const active = (access.credentials || []).filter((credential) =>
           credential.environment === 'dev' && !credential.revokedAt && credential.expiresAt > Date.now())
-        checks.push(active.length
-          ? check('runtime-access', 'pass', `${active.length} active Development runtime credential(s) exist; token values were not returned.`)
-          : check('runtime-access', 'warning', 'No active Development runtime credential metadata exists. Create one before the backend calls the runtime.'))
+        const coverage = credentialCoverage(project, active)
+        checks.push(!active.length
+          ? check('runtime-access', 'warning', 'No active Development runtime credential metadata exists. Create one before the backend calls the runtime.')
+          : coverage.covered
+            ? check('runtime-access', 'pass', `${active.length} active Development runtime credential(s) cover every declared operation; token values were not returned.`)
+            : check('runtime-access', 'fail', `Active Development credentials are missing ${coverage.missing.length} declared operation(s). Rotate credentials before shipping.`))
       }
     } catch (error) {
       checks.push(check('control-plane', 'fail', error instanceof Error ? error.message : 'Remote Control Plane diagnostic failed.'))

@@ -64,6 +64,17 @@ export interface LacifyOperationResponse<T> { success: true; operation: string; 
 export interface LacifyCommandResponse<T> extends LacifyOperationResponse<T> { command: string; state: string; version: number; lifecycle: string[]; eventId: string; replayed?: boolean }
 export interface LacifyPageRequest { cursor?: string | null; pageSize?: number }
 export interface LacifyPage<T> { items: T[]; nextCursor: string | null }
+export class LacifyRuntimeError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+    message: string,
+    public readonly retryable: boolean,
+  ) {
+    super(message)
+    this.name = 'LacifyRuntimeError'
+  }
+}
 ${actorTypes}
 ${operationTypes}
 
@@ -78,6 +89,18 @@ export class LacifyClient {
     return { 'content-type': 'application/json', authorization: \`Bearer \${this.accessToken}\`, ...extra }
   }
 
+  private async failure(response: Response, fallback: string): Promise<LacifyRuntimeError> {
+    const body = await response.clone().json().catch(() => null) as { error?: { code?: string; message?: string } } | null
+    const code = body?.error?.code || 'runtime_request_failed'
+    const message = body?.error?.message || \`\${fallback} with HTTP \${response.status}.\`
+    return new LacifyRuntimeError(
+      response.status,
+      code,
+      message,
+      response.status === 429 || response.status >= 500,
+    )
+  }
+
   private async request<T>(actor: string, partition: string, command: string, input: JsonObject): Promise<T> {
     const collection = \`\${actor.toLowerCase()}s\`
     const response = await this.fetchImpl(\`\${this.baseUrl}/v1/\${collection}/\${encodeURIComponent(partition)}/commands\`, {
@@ -85,7 +108,7 @@ export class LacifyClient {
       headers: this.headers(),
       body: JSON.stringify({ command, payload: input }),
     })
-    if (!response.ok) throw new Error(\`Lacify command failed with HTTP \${response.status}.\`)
+    if (!response.ok) throw await this.failure(response, 'Lacify command failed')
     return response.json() as Promise<T>
   }
 
@@ -96,7 +119,7 @@ export class LacifyClient {
       headers: this.headers(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
       body: JSON.stringify({ command: operation, payload: input }),
     })
-    if (!response.ok) throw new Error(\`Lacify operation failed with HTTP \${response.status}.\`)
+    if (!response.ok) throw await this.failure(response, 'Lacify operation failed')
     return response.json() as Promise<LacifyCommandResponse<T>>
   }
 
@@ -107,7 +130,7 @@ export class LacifyClient {
       headers: this.headers(),
       body: JSON.stringify({ input, ...(page ? { page } : {}) }),
     })
-    if (!response.ok) throw new Error(\`Lacify query failed with HTTP \${response.status}.\`)
+    if (!response.ok) throw await this.failure(response, 'Lacify query failed')
     return response.json() as Promise<LacifyOperationResponse<T>>
   }
 ${clients}

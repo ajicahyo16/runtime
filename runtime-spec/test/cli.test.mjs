@@ -190,6 +190,36 @@ test('ship redeploys Development so application credential policy changes activa
   assert.deepEqual(JSON.parse(deployment[1].body), { environment: 'dev', redeploy: true })
 })
 
+test('credential rotation writes the one-time token only to a protected external file', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lacify-credential-project-'))
+  const secretDirectory = await mkdtemp(path.join(tmpdir(), 'lacify-credential-secret-'))
+  const tokenFile = path.join(secretDirectory, 'runtime-token')
+  await runCli(['init', '--project', 'credential-project', '--template', 'personal'], capture().io, root)
+  const token = `lacify_runtime_${'r'.repeat(43)}`
+  let requestBody
+  const remoteClient = async () => ({
+    request: async (route, init) => {
+      assert.equal(route, '/api/projects/credential-project/runtime-credentials')
+      requestBody = JSON.parse(init.body)
+      return { credential: { id: 'credential-new', token } }
+    },
+  })
+  const stream = capture()
+  assert.equal(await runCli([
+    'credential-rotate',
+    'development',
+    '--name', 'backend-v2',
+    '--token-file', tokenFile,
+    '--approve',
+    '--json',
+  ], stream.io, root, { remoteClient }), 0)
+  const result = JSON.parse(stream.value())
+  assert.equal(result.tokenReturned, false)
+  assert.equal(stream.value().includes(token), false)
+  assert.equal((await readFile(tokenFile, 'utf8')).trim(), token)
+  assert.ok(requestBody.capabilities.every(({ operations }) => operations.length > 0))
+})
+
 test('sync binds updates to the current remote fingerprint instead of a stale local base', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'lacify-sync-base-'))
   await runCli(['init', '--project', 'sync-base-project', '--template', 'personal'], capture().io, root)

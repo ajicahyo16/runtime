@@ -203,6 +203,17 @@ test('runtime Worker requires scoped application credentials and enforces payloa
   assert.equal(missing.status, 401)
   assert.equal((await missing.json()).error.code, 'application_authentication_required')
 
+  const access = await worker.fetch(new Request('https://runtime.test/__lacify/access', {
+    headers: { authorization: `Bearer ${token}` },
+  }), env, ctx)
+  assert.equal(access.status, 200)
+  const accessBody = await access.json()
+  assert.deepEqual(accessBody.capabilities, [{
+    actor: 'Outlet',
+    operations: ['GetOrder'],
+  }])
+  assert.equal(JSON.stringify(accessBody).includes(token), false)
+
   const forbidden = await worker.fetch(request(`Bearer ${token}`, { input: {} }, 'ListOrders'), env, ctx)
   assert.equal(forbidden.status, 403)
   assert.equal((await forbidden.json()).error.code, 'operation_forbidden')

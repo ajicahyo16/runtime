@@ -33,12 +33,58 @@ Use the repository CLI directly:
 node bin/lacify.mjs --help
 ```
 
-When the package is linked or installed, use `lacify` instead.
-
-Initialize a project:
+For development inside this repository, create a local `lacify` command:
 
 ```bash
+npm link
+lacify --help
+```
+
+You can also replace every `lacify` example below with
+`node /absolute/path/to/new-runtime/bin/lacify.mjs`.
+
+## Quick start
+
+Log in, initialize a repository-managed project, and enter its directory:
+
+```bash
+lacify login
 lacify init --project my-project --template personal
+cd my-project
+```
+
+Run the local feedback loop while editing Actor contracts:
+
+```bash
+lacify validate
+lacify test
+lacify dev
+```
+
+When the change is ready, generate and inspect its review receipt:
+
+```bash
+lacify integrate
+lacify plan
+lacify review
+git diff
+```
+
+The last command prints a `review_...` ID. Ship the exact reviewed state to
+Development only after inspecting the diff:
+
+```bash
+lacify ship development \
+  --review review_REPLACE_WITH_THE_PRINTED_ID \
+  --approve
+```
+
+Confirm that repository source, deployment, credentials, and runtime access
+agree:
+
+```bash
+lacify status --remote
+lacify doctor --remote
 ```
 
 ## Effortless Development workflow
@@ -79,6 +125,52 @@ lacify ship development --review <review-id> --approve
 
 It does not promote to Staging or Production.
 
+The workflow is resumable and writes a secret-free checkpoint to
+`.lacify/ship-state.json`. Release compilation, verification, and deployment
+retry only transient failures (for example Cloudflare `429`, `5xx`, network
+resets, and bounded D1 CPU resets) with bounded exponential backoff. Validation,
+authorization, and contract failures fail immediately.
+
+If a transient failure interrupts `ship`, rerun the same command with the same
+review ID. Lacify resumes verified work from the checkpoint instead of creating
+unnecessary releases. Do not manually edit the checkpoint.
+
+Before compiling a release, `ship` compares active Development credential
+capabilities with the repository operation surface. If credentials already
+exist but omit a newly declared operation, deployment stops with the exact
+`Actor.Operation` diff instead of allowing the application to discover it as a
+runtime `403`.
+
+## Runtime credential rotation
+
+Create a least-surprise replacement credential for the complete current
+operation surface:
+
+```bash
+lacify credential-rotate development \
+  --name my-backend-v2 \
+  --token-file /protected/outside/repository/runtime-token \
+  --approve
+```
+
+The token is written once with mode `0600`; it is never printed or placed in
+the repository. Update the trusted backend secret from that file, rerun
+`lacify ship development`, perform the application smoke test, and only then
+revoke the old credential in Runtime Access. This two-phase sequence prevents
+an eager revoke from taking a healthy backend offline.
+
+For an application or backend runtime check, expose the replacement credential
+only through server-side environment variables:
+
+```bash
+export LACIFY_RUNTIME_URL="https://your-runtime.example"
+export LACIFY_RUNTIME_TOKEN="replace-with-the-protected-token"
+lacify doctor --remote
+```
+
+Do not prefix the variables with `VITE_`, `NEXT_PUBLIC_`, or another
+browser-visible convention.
+
 ## Honest status checks
 
 Local status:
@@ -102,6 +194,35 @@ Remote readiness requires all of the following:
 - the matching release is successfully deployed to Development.
 
 Therefore, an old healthy deployment is reported as stale rather than ready.
+
+When `LACIFY_RUNTIME_URL` and `LACIFY_RUNTIME_TOKEN` are present,
+`doctor --remote` also calls the metadata-only `GET /__lacify/access` probe.
+The probe authenticates the exact configured credential and compares its
+capabilities with every declared operation without routing to a Durable Object
+or reading business rows.
+
+Generated clients throw `LacifyRuntimeError` with stable `status`, `code`,
+`message`, and `retryable` fields. Backends can preserve errors such as
+`operation_forbidden` instead of collapsing them into an opaque `502`.
+
+## Recovery guide
+
+- `review mismatch`: rerun `validate`, `test`, `integrate`, `plan`, and
+  `review`; never approve an old receipt for changed source.
+- `credential capability gap`: create a replacement with
+  `credential-rotate`, update the backend secret, ship again, smoke-test, then
+  revoke the old credential.
+- `runtime_unauthorized`: verify the server-side runtime URL/token and run
+  `doctor --remote`; do not keep retrying a rejected credential.
+- `429`, `5xx`, network reset, or bounded D1 CPU reset: rerun the same `ship`
+  command. The resumable checkpoint and bounded retry protect completed work.
+- stale remote status: run `lacify status --remote`; compile and ship the
+  currently reviewed repository fingerprint instead of trusting an older
+  healthy deployment.
+
+For machine-readable output in automation, add `--json` to commands that
+support it. Never parse human-readable error sentences when a structured
+`code` is available.
 
 ## Authentication
 
