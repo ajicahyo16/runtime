@@ -2366,15 +2366,26 @@ export default {
           const runtimeUrl = `https://${resourcePlan.workerName}.${subdomain}.workers.dev`
           const deployingLogs = [...logs, deploymentLog('uploaded', `Immutable Worker promoted to ${environmentLabel}.`), deploymentLog('smoke_started', `Running GET ${runtimeUrl}/health.`)]
           await env.DB.prepare('UPDATE deployment_jobs SET status = ?, runtime_url = ?, logs = ?, updated_at = ? WHERE id = ?').bind('deploying', runtimeUrl, JSON.stringify(deployingLogs), now(), deploymentId).run()
-          let smokeResponse = await fetch(`${runtimeUrl}/health?deep=1`, { headers: { accept: 'application/json' } })
-          let smokePayload = await smokeResponse.json<{ ok?: boolean; deploymentId?: string; releaseId?: string }>().catch(() => null)
-          for (let attempt = 0; attempt < 8 && (!smokeResponse.ok || smokePayload?.ok !== true || smokePayload.deploymentId !== deploymentId || smokePayload.releaseId !== releaseId); attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, Math.min(1_000 * (attempt + 1), 5_000)))
-            smokeResponse = await fetch(`${runtimeUrl}/health?deep=1`, { headers: { accept: 'application/json' } })
-            smokePayload = await smokeResponse.json<{ ok?: boolean; deploymentId?: string; releaseId?: string }>().catch(() => null)
+          let smokeResponse: Response | null = null
+          let smokePayload: { ok?: boolean; deploymentId?: string; releaseId?: string } | null = null
+          // A workers.dev hostname can continue serving the previous version
+          // briefly after the upload API succeeds. Probe for up to 60 seconds
+          // and require the exact immutable deployment identity, rather than
+          // declaring a healthy previous version to be the new release.
+          for (let attempt = 0; attempt <= 14; attempt += 1) {
+            if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(1_000 * attempt, 5_000)))
+            smokeResponse = await fetch(`${runtimeUrl}/health?deep=1`, {
+              headers: { accept: 'application/json' },
+              signal: AbortSignal.timeout(5_000),
+            }).catch(() => null)
+            smokePayload = smokeResponse
+              ? await smokeResponse.json<{ ok?: boolean; deploymentId?: string; releaseId?: string }>().catch(() => null)
+              : null
+            if (smokeResponse?.ok && smokePayload?.ok === true && smokePayload.deploymentId === deploymentId && smokePayload.releaseId === releaseId) break
           }
-          const smokePassed = smokeResponse.ok && smokePayload?.ok === true && smokePayload.deploymentId === deploymentId && smokePayload.releaseId === releaseId
-          const smokeCheck = { status: smokePassed ? 'passed' : 'failed', message: smokePassed ? 'Runtime health check passed.' : `Runtime health check failed (${smokeResponse.status}).`, checkedAt: now(), url: `${runtimeUrl}/health` }
+          const smokePassed = smokeResponse?.ok === true && smokePayload?.ok === true && smokePayload.deploymentId === deploymentId && smokePayload.releaseId === releaseId
+          const smokeStatus = smokeResponse?.status ?? 0
+          const smokeCheck = { status: smokePassed ? 'passed' : 'failed', message: smokePassed ? 'Runtime health check passed.' : `Runtime health check failed (${smokeStatus || 'unreachable'}).`, checkedAt: now(), url: `${runtimeUrl}/health` }
           const finalLogs = [...deployingLogs, deploymentLog(smokePassed ? 'smoke_passed' : 'smoke_failed', smokeCheck.message)]
           await env.DB.prepare('UPDATE deployment_jobs SET status = ?, smoke_check = ?, logs = ?, updated_at = ? WHERE id = ?').bind(smokePassed ? 'succeeded' : 'failed', JSON.stringify(smokeCheck), JSON.stringify(finalLogs), now(), deploymentId).run()
           await audit(env, workspaceId, session, `deployment.${environment}.uploaded`, 'deployment', deploymentId, projectId, { releaseId, workerName: resourcePlan.workerName })
