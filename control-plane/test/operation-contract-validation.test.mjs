@@ -31,6 +31,49 @@ test('Control Plane preserves validated repository operations for immutable comp
   assert.match(result.document.operations[0].sql, /:partitionId/)
 })
 
+test('Control Plane accepts additive migrations prefixed by SQL comments', () => {
+  const result = validateContract({
+    ...base,
+    migrations: [{
+      id: '0002_inbox_preview',
+      sql: [
+        '-- Projection-only metadata for a room preview.',
+        'ALTER TABLE inbox_rooms ADD COLUMN preview_text TEXT;',
+        'ALTER TABLE inbox_rooms ADD COLUMN preview_created_at INTEGER NOT NULL DEFAULT 0;'
+      ].join('\n')
+    }]
+  })
+  assert.equal(result.message, undefined)
+})
+
+test('Control Plane preserves bounded realtime emits during repository sync', () => {
+  const operation = structuredClone(base.operations[0])
+  operation.definition.emits = [{
+    event: 'OrderPlaced',
+    target: 'realtime',
+    durability: 'immediate',
+    fields: ['id', 'total'],
+    realtime: { roomClass: 'orders', roomField: 'id' },
+  }]
+  const result = validateContract({ ...base, operations: [operation] })
+  assert.equal(result.message, undefined)
+  assert.deepEqual(result.document.operations[0].definition.emits, operation.definition.emits)
+})
+
+test('Control Plane rejects realtime emits with undeclared payload or room fields', () => {
+  const operation = structuredClone(base.operations[0])
+  operation.definition.emits = [{
+    event: 'OrderPlaced',
+    target: 'realtime',
+    durability: 'immediate',
+    fields: ['missing'],
+    realtime: { roomClass: 'orders', roomField: 'missing' },
+  }]
+  const result = validateContract({ ...base, operations: [operation] })
+  assert.equal(typeof result.message, 'string')
+  assert.equal(result.document, undefined)
+})
+
 test('Control Plane rejects arbitrary, internal, unbounded, and undeclared operation SQL', () => {
   const sqlCases = [
     'DROP TABLE orders;',

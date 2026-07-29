@@ -161,6 +161,35 @@ test('sync publishes an approved source without compiling or deploying a release
   assert.equal(calls.some(([route, method]) => route.endsWith('/releases') && method === 'POST'), false)
 })
 
+test('ship redeploys Development so application credential policy changes activate', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lacify-ship-'))
+  await runCli(['init', '--project', 'ship-project', '--template', 'personal'], capture().io, root)
+  const reviewed = capture()
+  await runCli(['review', '--json'], reviewed.io, root)
+  const reviewId = JSON.parse(reviewed.value()).receipt.reviewId
+  const requests = []
+  const remoteClient = async () => ({
+    request: async (route, init = {}) => {
+      requests.push([route, init])
+      if (route === '/api/projects') return { projects: [{ id: 'ship-project', source_fingerprint: 'f'.repeat(64) }] }
+      if (route.endsWith('/contracts')) return { contracts: [] }
+      if (route.endsWith('/environments')) return { environments: { dev: { updatedAt: 1 } } }
+      if (route.endsWith('/releases') && init.method === 'POST') {
+        return { release: { id: `release_${'a'.repeat(24)}` } }
+      }
+      if (route.endsWith('/verify') && init.method === 'POST') return { releaseStatus: 'verified' }
+      if (route.endsWith('/deployments') && init.method === 'POST') {
+        return { deployment: { id: `deploy_${'a'.repeat(18)}_dev`, status: 'succeeded' } }
+      }
+      return { success: true }
+    },
+  })
+
+  assert.equal(await runCli(['ship', 'development', '--review', reviewId, '--approve'], capture().io, root, { remoteClient }), 0)
+  const deployment = requests.find(([route, init]) => route.endsWith('/deployments') && init.method === 'POST')
+  assert.deepEqual(JSON.parse(deployment[1].body), { environment: 'dev', redeploy: true })
+})
+
 test('sync binds updates to the current remote fingerprint instead of a stale local base', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'lacify-sync-base-'))
   await runCli(['init', '--project', 'sync-base-project', '--template', 'personal'], capture().io, root)

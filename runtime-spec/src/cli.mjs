@@ -735,7 +735,14 @@ export async function runCli(argv, io = process, cwd = process.cwd(), dependenci
         const deployment = await client.request(`/api/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(compiled.release.id)}/deployments`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ environment: 'dev' }),
+          // `ship` is also the activation path for runtime application
+          // credential policy changes. Reusing an already healthy deployment
+          // would leave newly issued or revoked credentials out of the
+          // immutable policy.
+          body: JSON.stringify({
+            environment: 'dev',
+            ...(requestedCommand === 'ship' ? { redeploy: true } : {}),
+          }),
         })
         remoteResult = { synced: true, release: { ...compiled.release, status: verification.releaseStatus }, deployment: deployment.deployment }
       }

@@ -17,7 +17,12 @@ test('compiles a deterministic standalone hibernating Room Actor artifact', asyn
   assert.deepEqual(first.artifact, second.artifact)
   assert.equal(first.manifest.runtime, 'realtime')
   assert.equal(first.manifest.deployment.remoteMutation, false)
-  assert.deepEqual(first.manifest.roomClasses.map(({ id }) => id), ['chat'])
+  assert.deepEqual(first.manifest.roomClasses.map(({ id }) => id), ['chat', 'notifications'])
+  const notificationRoom = first.manifest.roomClasses.find(({ id }) => id === 'notifications')
+  assert.deepEqual(notificationRoom.capabilities, ['events'])
+  assert.deepEqual(notificationRoom.events, [
+    { name: 'NotificationCreated', durability: 'ephemeral' },
+  ])
   assert.match(first.artifact['worker.js'], /ctx\.acceptWebSocket\(server\)/)
   assert.match(first.artifact['worker.js'], /serializeAttachment/)
   assert.match(first.artifact['worker.js'], /webSocketMessage/)
@@ -35,6 +40,7 @@ test('compiles a deterministic standalone hibernating Room Actor artifact', asyn
   assert.deepEqual(wrangler.migrations[0].new_sqlite_classes, ['RoomActor'])
   assert.equal(wrangler.durable_objects.bindings[0].class_name, 'RoomActor')
   assert.equal(wrangler.r2_buckets[0].binding, 'HISTORY')
+  assert.equal(wrangler.limits, undefined)
   const lifecycle = JSON.parse(first.artifact['r2-lifecycle.json'])
   assert.equal(lifecycle.remoteMutation, false)
   assert.equal(lifecycle.bucket, 'lacify-realtime-collaboration-history')

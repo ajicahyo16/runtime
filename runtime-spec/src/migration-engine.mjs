@@ -82,7 +82,11 @@ export function classifyMigrationSql(sql) {
     if (/^(CREATE\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX|ALTER\s+TABLE\s+\S+\s+ADD\s+COLUMN)\b/i.test(statement)) classification = 'additive'
     else if (/^(INSERT\s+INTO|UPDATE\s+)\b/i.test(statement)) classification = 'data-changing'
     else if (/^(DROP|TRUNCATE|DELETE\s+FROM|ALTER\s+TABLE.+\b(?:DROP|RENAME)\b)\b/i.test(statement)) classification = 'destructive'
-    return { classification, statement: statement.replace(/\s+/g, ' ').slice(0, 240) }
+    // Migration plans execute `operation.statement` during preflight and
+    // apply. Keep the complete normalized statement here: truncating it for
+    // display would turn otherwise valid schema/data migrations into invalid
+    // SQL at execution time.
+    return { classification, statement: statement.replace(/\s+/g, ' ') }
   })
   const classes = new Set(operations.map((operation) => operation.classification))
   const classification = ['unsupported', 'destructive', 'data-changing', 'additive'].find((candidate) => classes.has(candidate)) || 'unsupported'

@@ -185,7 +185,7 @@ export class RoomActor extends DurableObject {
     const policy = this.eventPolicy(attachment.config, frame.name)
     if (policy.durability === 'ephemeral') {
       this.send(ws, { type: 'ack', eventId: frame.eventId, level: 'accepted', durability: 'ephemeral' })
-      this.broadcast({ type: 'event', eventId: frame.eventId, name: frame.name, payload: frame.payload, durability: 'ephemeral', createdAt: Date.now() })
+      this.broadcast({ type: 'event', eventId: frame.eventId, name: frame.name, payload: frame.payload, durability: 'ephemeral', createdAt: Date.now() }, ws)
       return
     }
     if (policy.durability === 'segmented') {
@@ -508,7 +508,6 @@ export async function compileRealtimeRelease(loaded, options = {}) {
       r2_buckets: [{ binding: 'HISTORY', bucket_name: `lacify-realtime-${project}-history` }],
       migrations: [{ tag: 'r1', new_sqlite_classes: ['RoomActor'] }],
       vars: { LACIFY_ENVIRONMENT: 'development' },
-      limits: { cpu_ms: 10 },
     }, null, 2)}\n`,
     'r2-lifecycle.json': `${JSON.stringify({
       format: 'lacify-r2-lifecycle/v1',

@@ -3,3 +3,4 @@ project: collaboration
 runtime: realtime
 rooms:
   - ./rooms/chat.room.yaml
+  - ./rooms/notifications.room.yaml

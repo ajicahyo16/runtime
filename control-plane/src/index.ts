@@ -495,6 +495,95 @@ function validateContractOperations(value: unknown, actions: string[]): { operat
       if (!Object.hasOwn(fields, cursorField) || !Number.isSafeInteger(defaultPageSize) || !Number.isSafeInteger(maxPageSize) || defaultPageSize < 1 || maxPageSize > 100 || defaultPageSize > maxPageSize) return { message: `Operation "${name}" pagination bounds are invalid.` }
       result.pagination = { cursorField, defaultPageSize, maxPageSize }
     }
+    const emits: NonNullable<RuntimeContract['operations']>[number]['definition']['emits'] = []
+    if (definition.emits !== undefined) {
+      if (kind !== 'command' || !Array.isArray(definition.emits) || definition.emits.length < 1 || definition.emits.length > 16) {
+        return { message: `Operation "${name}" emits must contain 1–16 command event declarations.` }
+      }
+      const identities = new Set<string>()
+      for (const rawEmit of definition.emits) {
+        if (!rawEmit || typeof rawEmit !== 'object' || Array.isArray(rawEmit)) return { message: `Operation "${name}" emit declaration is invalid.` }
+        const emit = rawEmit as Record<string, unknown>
+        const event = typeof emit.event === 'string' ? emit.event : ''
+        const target = emit.target
+        const durability = emit.durability
+        const rawFields = emit.fields
+        if (!identifier.test(event) || !['realtime', 'reporting', 'archive'].includes(String(target)) || !['segmented', 'immediate'].includes(String(durability))) {
+          return { message: `Operation "${name}" emit identity, target, or durability is invalid.` }
+        }
+        if (
+          !Array.isArray(rawFields) ||
+          rawFields.length < 1 ||
+          rawFields.length > 32 ||
+          rawFields.some((field) => typeof field !== 'string' || !Object.hasOwn(fields, field)) ||
+          new Set(rawFields).size !== rawFields.length
+        ) return { message: `Operation "${name}" emit fields must reference unique result fields.` }
+        const identity = `${target}:${event}`
+        if (identities.has(identity)) return { message: `Operation "${name}" emit "${identity}" is duplicated.` }
+        identities.add(identity)
+
+        let realtime: { roomClass: string; roomField: string } | undefined
+        if (target === 'realtime') {
+          if (!emit.realtime || typeof emit.realtime !== 'object' || Array.isArray(emit.realtime)) return { message: `Operation "${name}" realtime emit routing is required.` }
+          const routing = emit.realtime as Record<string, unknown>
+          const roomClass = typeof routing.roomClass === 'string' ? routing.roomClass : ''
+          const roomField = typeof routing.roomField === 'string' ? routing.roomField : ''
+          if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(roomClass) || (roomField !== '$partitionKey' && !rawFields.includes(roomField))) {
+            return { message: `Operation "${name}" realtime room routing is invalid.` }
+          }
+          realtime = { roomClass, roomField }
+        } else if (emit.realtime !== undefined) {
+          return { message: `Operation "${name}" realtime routing is allowed only for realtime emits.` }
+        }
+
+        let reporting: NonNullable<NonNullable<typeof emits>[number]['reporting']> | undefined
+        if (target === 'reporting') {
+          if (!emit.reporting || typeof emit.reporting !== 'object' || Array.isArray(emit.reporting)) return { message: `Operation "${name}" reporting projection is required.` }
+          const projection = emit.reporting as Record<string, unknown>
+          const keyField = typeof projection.keyField === 'string' ? projection.keyField : ''
+          const sequenceField = typeof projection.sequenceField === 'string' ? projection.sequenceField : undefined
+          const dimensions = projection.dimensions
+          const measures = projection.measures
+          if (
+            (keyField !== '$partitionKey' && !rawFields.includes(keyField)) ||
+            (sequenceField !== undefined && (!rawFields.includes(sequenceField) || fields[sequenceField]?.type !== 'integer')) ||
+            !Array.isArray(dimensions) ||
+            dimensions.length > 8 ||
+            dimensions.some((field) => typeof field !== 'string' || !rawFields.includes(field)) ||
+            !Array.isArray(measures) ||
+            measures.length < 1 ||
+            measures.length > 8
+          ) return { message: `Operation "${name}" reporting projection is invalid.` }
+          const normalizedMeasures: Array<{ field: string; aggregate: 'sum' }> = []
+          for (const rawMeasure of measures) {
+            if (!rawMeasure || typeof rawMeasure !== 'object' || Array.isArray(rawMeasure)) return { message: `Operation "${name}" reporting measure is invalid.` }
+            const measure = rawMeasure as Record<string, unknown>
+            const field = typeof measure.field === 'string' ? measure.field : ''
+            if (!rawFields.includes(field) || !['integer', 'number'].includes(fields[field]?.type) || measure.aggregate !== 'sum') {
+              return { message: `Operation "${name}" reporting measure is invalid.` }
+            }
+            normalizedMeasures.push({ field, aggregate: 'sum' })
+          }
+          reporting = {
+            keyField,
+            ...(sequenceField === undefined ? {} : { sequenceField }),
+            dimensions: [...dimensions] as string[],
+            measures: normalizedMeasures,
+          }
+        } else if (emit.reporting !== undefined) {
+          return { message: `Operation "${name}" reporting metadata is allowed only for reporting emits.` }
+        }
+
+        emits.push({
+          event,
+          target: target as 'realtime' | 'reporting' | 'archive',
+          durability: durability as 'segmented' | 'immediate',
+          fields: [...rawFields] as string[],
+          ...(realtime ? { realtime } : {}),
+          ...(reporting ? { reporting } : {}),
+        })
+      }
+    }
     if (new TextEncoder().encode(raw.sql).byteLength > 64 * 1024) return { message: `Operation "${name}" SQL is too large.` }
     const sql = raw.sql.replace(/\r\n/g, '\n').trim() + '\n'
     const statement = sql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').trim()
@@ -518,6 +607,7 @@ function validateContractOperations(value: unknown, actions: string[]): { operat
         sql: definition.sql,
         input,
         result,
+        ...(emits.length ? { emits } : {}),
       },
       sql,
     })
@@ -554,7 +644,10 @@ export function validateContract(value: unknown): { document?: ContractDocument;
   for (const migration of migrations) {
     if (!/^\d{4}_[a-z0-9][a-z0-9_]{0,62}$/.test(migration.id) || !migration.sql || new TextEncoder().encode(migration.sql).byteLength > 1024 * 1024) return { message: 'Migration ID or SQL size is invalid.' }
     if (/\b(PRAGMA|ATTACH|DETACH|VACUUM|DROP|TRUNCATE|REINDEX|CREATE\s+TRIGGER|CREATE\s+VIRTUAL\s+TABLE)\b/i.test(migration.sql)) return { message: `Migration ${migration.id} contains unsupported SQL.` }
-    const statements = migration.sql.split(';').map((statement) => statement.trim()).filter(Boolean)
+    const statements = migration.sql
+      .split(';')
+      .map((statement) => statement.replace(/^\s*(?:(?:--[^\n]*\n)|(?:\/\*[\s\S]*?\*\/))*/g, '').trim())
+      .filter(Boolean)
     if (statements.some((statement) => !/^(CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|CREATE\s+(?:UNIQUE\s+)?INDEX(?:\s+IF\s+NOT\s+EXISTS)?|ALTER\s+TABLE\s+[a-zA-Z_][a-zA-Z0-9_]*\s+ADD\s+COLUMN|INSERT\s+INTO|UPDATE\s+[a-zA-Z_][a-zA-Z0-9_]*)\b/i.test(statement))) return { message: `Migration ${migration.id} contains an unsupported statement.` }
     if (statements.some((statement) => /^UPDATE\b/i.test(statement) && !/\bWHERE\b/i.test(statement))) return { message: `Migration ${migration.id} contains an unbounded UPDATE.` }
   }
@@ -2113,6 +2206,13 @@ export default {
           const artifact = JSON.parse(release.artifact) as Record<string, string>
           const worker = artifact['worker.js'] || artifact['worker.ts']
           if (!worker) throw new Error('The immutable release does not contain a Worker artifact.')
+          const eventRouterWorker = artifact['event-router.js']
+          const eventRouterConfig = artifact['wrangler.event-router.jsonc']
+            ? JSON.parse(artifact['wrangler.event-router.jsonc']) as {
+                services?: Array<{ binding: string; service: string }>
+                r2_buckets?: Array<{ binding: string; bucket_name: string }>
+              }
+            : null
           const contracts = (JSON.parse(release.manifest) as { contracts?: Array<{ aggregateType: string }> }).contracts || []
           const scriptEndpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(session.account_id)}/workers/scripts/${encodeURIComponent(resourcePlan.workerName)}`
           const scriptSubdomainEndpoint = `${scriptEndpoint}/subdomain`
@@ -2154,6 +2254,12 @@ export default {
           const previousClasses = new Set(
             previousContracts.map((contract) => `${contract.aggregateType}DO`),
           )
+          // A prior upload can create a Durable Object class even when the
+          // deployment job later fails (for example during smoke checks).
+          // Do not attempt to register that class a second time on retry.
+          if (scriptExists && existing) {
+            for (const className of classes) previousClasses.add(className)
+          }
           const newClasses = scriptExists
             ? classes.filter((className) => !previousClasses.has(className))
             : classes
@@ -2177,10 +2283,56 @@ export default {
               capabilities: JSON.parse(credential.capabilities),
             })),
           }
+          const eventRouterSecret = eventRouterWorker ? newTelemetryCredential() : null
+          const realtimeSinkSecret = eventRouterConfig?.services?.some(({ binding }) => binding === 'REALTIME_SINK')
+            ? newTelemetryCredential()
+            : null
+          if (eventRouterWorker && eventRouterSecret) {
+            const eventRouterName = `lacify-${projectId}-${environment}-event-router`
+            const eventRouterEndpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(session.account_id)}/workers/scripts/${encodeURIComponent(eventRouterName)}`
+            const eventRouterLookup = await fetch(`${eventRouterEndpoint}/subdomain`, { headers: { authorization: `Bearer ${token}` } })
+            const eventRouterExists = eventRouterLookup.ok
+            if (!eventRouterExists && eventRouterLookup.status !== 404) throw new Error(await cloudflareErrorMessage(eventRouterLookup))
+            if (realtimeSinkSecret) {
+              const realtimeService = eventRouterConfig?.services?.find(({ binding }) => binding === 'REALTIME_SINK')?.service
+              if (!realtimeService) throw new Error('Realtime service binding is missing from the immutable Event Router artifact.')
+              const realtimeSecretResponse = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(session.account_id)}/workers/scripts/${encodeURIComponent(realtimeService)}/secrets`, {
+                method: 'PUT',
+                headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+                body: JSON.stringify({ name: 'LACIFY_REALTIME_SINK_SECRET', text: realtimeSinkSecret, type: 'secret_text' }),
+              })
+              if (!realtimeSecretResponse.ok) throw new Error(await cloudflareErrorMessage(realtimeSecretResponse))
+            }
+            const eventRouterMetadata = {
+              main_module: 'event-router.js',
+              compatibility_date: '2026-07-20',
+              bindings: [
+                { name: 'EVENT_ROUTER_DO', type: 'durable_object_namespace', class_name: 'EventRouterActor' },
+                { name: 'LACIFY_ENVIRONMENT', type: 'plain_text', text: environment },
+                { name: 'LACIFY_EVENT_ROUTER_SECRET', type: 'secret_text', text: eventRouterSecret },
+                { name: 'LACIFY_PREFLIGHT_SECRET', type: 'secret_text', text: newTelemetryCredential() },
+                ...(realtimeSinkSecret ? [
+                  { name: 'REALTIME_SINK', type: 'service', service: eventRouterConfig!.services!.find(({ binding }) => binding === 'REALTIME_SINK')!.service },
+                  { name: 'LACIFY_REALTIME_SINK_SECRET', type: 'secret_text', text: realtimeSinkSecret },
+                ] : []),
+                ...(eventRouterConfig?.r2_buckets || []).map(({ binding, bucket_name }) => ({ name: binding, type: 'r2_bucket', bucket_name })),
+              ],
+              ...(!eventRouterExists ? { migrations: { tag: 'r1', new_sqlite_classes: ['EventRouterActor'] } } : {}),
+            }
+            const eventRouterForm = new FormData()
+            eventRouterForm.set('metadata', new Blob([JSON.stringify(eventRouterMetadata)], { type: 'application/json' }))
+            eventRouterForm.set('event-router.js', new Blob([eventRouterWorker], { type: 'application/javascript+module' }), 'event-router.js')
+            const eventRouterUpload = await fetch(eventRouterEndpoint, { method: 'PUT', headers: { authorization: `Bearer ${token}` }, body: eventRouterForm })
+            if (!eventRouterUpload.ok) throw new Error(await cloudflareErrorMessage(eventRouterUpload))
+          }
           const metadata = {
             main_module: 'worker.js', compatibility_date: '2026-07-20',
             bindings: [
               ...contracts.map((contract) => ({ name: `${contract.aggregateType.toUpperCase()}_DO`, type: 'durable_object_namespace', class_name: `${contract.aggregateType}DO` })),
+              ...(eventRouterWorker && eventRouterSecret ? [
+                { name: 'LACIFY_EVENT_SINK', type: 'service', service: `lacify-${projectId}-${environment}-event-router` },
+                { name: 'LACIFY_EVENT_ROUTER_SECRET', type: 'secret_text', text: eventRouterSecret },
+              ] : []),
               { name: 'LACIFY_TELEMETRY_CREDENTIAL', type: 'secret_text', text: telemetryCredential },
               { name: 'LACIFY_TELEMETRY_URL', type: 'plain_text', text: telemetryBaseUrl },
               { name: 'LACIFY_DEPLOYMENT_ID', type: 'plain_text', text: deploymentId },

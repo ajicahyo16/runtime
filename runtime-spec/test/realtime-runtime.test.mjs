@@ -27,18 +27,24 @@ function nextFrame(socket, predicate = () => true, timeoutMs = 2_000) {
   })
 }
 
-async function token(clientId, subject = clientId, room = 'general') {
+async function token(
+  clientId,
+  subject = clientId,
+  room = 'general',
+  roomClass = 'chat',
+  capabilities = ['events', 'presence', 'history'],
+) {
   return mintRealtimeToken({
     secret,
     claims: {
       sub: subject,
       aud: 'collaboration',
       env: 'development',
-      roomClass: 'chat',
+      roomClass,
       room,
       cid: clientId,
       jti: `token-${clientId}`,
-      capabilities: ['events', 'presence', 'history'],
+      capabilities,
     },
   })
 }
@@ -113,11 +119,14 @@ test('authenticated server events enter the same Room Actor and deduplicate dura
 })
 
 async function connect(mf, clientId, options = {}) {
-  const response = await mf.dispatchFetch(`https://runtime.test/v1/realtime/chat/${options.room || 'general'}`, {
+  const roomClass = options.roomClass || 'chat'
+  const room = options.room || 'general'
+  const capabilities = options.capabilities || ['events', 'presence', 'history']
+  const response = await mf.dispatchFetch(`https://runtime.test/v1/realtime/${roomClass}/${room}`, {
     headers: {
       upgrade: 'websocket',
       origin: options.origin || 'https://app.example.com',
-      authorization: `Bearer ${options.token || await token(clientId, options.subject)}`,
+      authorization: `Bearer ${options.token || await token(clientId, options.subject, room, roomClass, capabilities)}`,
     },
   })
   assert.equal(response.status, 101)
@@ -126,6 +135,51 @@ async function connect(mf, clientId, options = {}) {
   const hello = await nextFrame(socket, (frame) => frame.type === 'hello')
   return { socket, hello }
 }
+
+test('user-scoped notification sockets receive ephemeral server fanout without persistent writes', async (t) => {
+  const { mf } = await runtime()
+  t.after(() => mf.dispose())
+  const userId = 'user-notification-recipient'
+  const connection = await connect(mf, 'notification-client', {
+    subject: userId,
+    room: userId,
+    roomClass: 'notifications',
+    capabilities: ['events'],
+  })
+  assert.deepEqual(connection.hello.capabilities, ['events'])
+  assert.equal(connection.hello.budget.persistentEventsUsed, 0)
+
+  const received = nextFrame(
+    connection.socket,
+    (frame) => frame.type === 'event' && frame.eventId === 'notification-event-1',
+  )
+  const response = await mf.dispatchFetch('https://runtime.test/v1/internal/events', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-lacify-event-sink-secret': 'realtime-sink-secret',
+    },
+    body: JSON.stringify({
+      version: 'lacify.dev/event/v1',
+      eventId: 'notification-event-1',
+      operation: 'IngestNotificationEvent',
+      partitionKey: userId,
+      event: 'NotificationCreated',
+      target: 'realtime',
+      durability: 'ephemeral',
+      payload: { notificationId: 'notification-1', type: 'FOLLOW' },
+      routing: { roomClass: 'notifications', room: userId },
+      occurredAt: Date.now(),
+    }),
+  })
+
+  assert.equal(response.status, 202)
+  const frame = await received
+  assert.equal(frame.durability, 'ephemeral')
+  assert.equal(frame.payload.notificationId, 'notification-1')
+  assert.equal(frame.roomSeq, undefined)
+  connection.socket.close(1000, 'done')
+})
 
 test('workerd accepts authenticated hibernatable sockets and enforces origin and audience', async (t) => {
   const { mf } = await runtime()

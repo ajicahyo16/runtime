@@ -22,6 +22,22 @@ test('classifies additive, data-changing, destructive, and unsupported SQL', () 
   assert.equal(classifyMigrationSql('PRAGMA journal_mode;').classification, 'unsupported')
 })
 
+test('preserves long migration statements for preflight and apply execution', () => {
+  const columns = Array.from({ length: 40 }, (_, index) => `column_${index} TEXT`).join(', ')
+  const sql = `CREATE TABLE long_schema (${columns});`
+  const classified = classifyMigrationSql(sql)
+  assert.ok(classified.operations[0].statement.length > 240)
+  const database = new DatabaseSync(':memory:')
+  const plan = planMigrations({
+    actor: 'Outlet',
+    migrations: [{ id: '0001_long_schema', sql }],
+    ledger: [],
+    releaseId: 'release-long',
+  })
+  assert.doesNotThrow(() => applyMigrationPlan(database, plan))
+  assert.equal(database.prepare("SELECT count(*) AS count FROM sqlite_schema WHERE name = 'long_schema'").get().count, 1)
+})
+
 test('creates a deterministic ordered plan and safely reapplies it', () => {
   const database = new DatabaseSync(':memory:')
   const plan = planMigrations({ actor: 'Outlet', migrations, ledger: [], releaseId: 'release-1', environmentRevision: 'revision-1', projectFingerprint: 'fingerprint-1' })

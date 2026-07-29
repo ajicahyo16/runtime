@@ -1,0 +1,23 @@
+version: lacify.dev/room/v1
+name: Notifications
+partitionBy: userId
+capabilities:
+  - events
+storage: sqlite
+retention:
+  historySeconds: 300
+  maxEvents: 1
+limits:
+  maxFrameBytes: 8192
+  maxConnections: 8
+  maxPresenceBytes: 64
+  maxDocumentUpdateBytes: 256
+budget:
+  maxPersistentEventsPerUtcDay: 1
+events:
+  - name: NotificationCreated
+    durability: ephemeral
+auth:
+  mode: token
+  allowedOrigins:
+    - https://app.example.com
