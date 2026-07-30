@@ -188,6 +188,28 @@ async function workerEnvironment(actor, token, operations, rateLimitPerMinute = 
   }
 }
 
+async function compactWorkerEnvironment(actor, token, operations, rateLimitPerMinute = 60, maxPayloadBytes = 65_536) {
+  return {
+    LACIFY_DEPLOYMENT_ID: 'deploy_0123456789abcdef01_dev',
+    LACIFY_RELEASE_ID: 'release_0123456789abcdef01234567',
+    LACIFY_ENVIRONMENT: 'dev',
+    LACIFY_APPLICATION_ACCESS_POLICY: JSON.stringify({
+      v: 2,
+      e: 'dev',
+      c: [{
+        i: 'credential-test',
+        h: await tokenHash(token),
+        x: Date.now() + 60_000,
+        a: [['Outlet', operations, rateLimitPerMinute, maxPayloadBytes]],
+      }],
+    }),
+    OUTLET_DO: {
+      idFromName: (value) => value,
+      get: () => ({ fetch: (request) => actor.fetch(request) }),
+    },
+  }
+}
+
 test('runtime Worker requires scoped application credentials and enforces payload and operation limits', async () => {
   const token = `lacify_runtime_${'x'.repeat(43)}`
   const { actor, worker } = await runtime()
@@ -228,6 +250,24 @@ test('runtime Worker requires scoped application credentials and enforces payloa
   const large = await worker.fetch(request(`Bearer lacify_runtime_${'y'.repeat(43)}`, { input: { orderId: 'z'.repeat(1100) } }), payloadEnv, ctx)
   assert.equal(large.status, 413)
   assert.equal((await large.json()).error.code, 'operation_payload_limit')
+})
+
+test('runtime Worker accepts compact v2 application access policy', async () => {
+  const token = `lacify_runtime_${'c'.repeat(43)}`
+  const { actor, worker } = await runtime()
+  const env = await compactWorkerEnvironment(actor, token, ['GetOrder'])
+  const response = await worker.fetch(new Request(
+    'https://runtime.test/v1/outlets/outlet-a/queries/GetOrder',
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ input: { orderId: 'order-1' } }),
+    },
+  ), env, { waitUntil() {} })
+  assert.equal(response.status, 200)
 })
 
 test('Durable Object operation audit stores identity and outcome without payloads', async () => {

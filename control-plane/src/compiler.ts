@@ -522,8 +522,23 @@ async function sha256Text(value) {
 function applicationAccessPolicy(env) {
   try {
     const policy = JSON.parse(env.LACIFY_APPLICATION_ACCESS_POLICY || '');
-    if (policy?.version !== 1 || policy.workspaceId === undefined || policy.projectId === undefined || policy.environment !== env.LACIFY_ENVIRONMENT || !Array.isArray(policy.credentials)) return null;
-    return policy;
+    if (policy?.version === 1 && policy.workspaceId !== undefined && policy.projectId !== undefined && policy.environment === env.LACIFY_ENVIRONMENT && Array.isArray(policy.credentials)) return policy;
+    if (policy?.v !== 2 || policy.e !== env.LACIFY_ENVIRONMENT || !Array.isArray(policy.c)) return null;
+    const credentials = policy.c.map((credential) => ({
+      id: credential?.i,
+      tokenHash: credential?.h,
+      expiresAt: credential?.x,
+      capabilities: Array.isArray(credential?.a)
+        ? credential.a.map((capability) => ({
+          actor: capability?.[0],
+          operations: capability?.[1],
+          rateLimitPerMinute: capability?.[2],
+          maxPayloadBytes: capability?.[3],
+        }))
+        : null,
+    }));
+    if (credentials.some((credential) => !credential.id || !credential.tokenHash || !Array.isArray(credential.capabilities))) return null;
+    return { version: 2, credentials };
   } catch {
     return null;
   }

@@ -2271,16 +2271,27 @@ export default {
             ORDER BY id`)
             .bind(workspaceId, projectId, environment, now())
             .all<{ id: string; token_hash: string; capabilities: string; expires_at: number }>()
+          // Cloudflare text bindings are capped at 5 KiB. Keep the deployed
+          // credential policy compact so projects can add operations without
+          // the repeated JSON property names exhausting that limit.
           const applicationAccessPolicy = {
-            version: 1,
-            workspaceId,
-            projectId,
-            environment,
-            credentials: applicationCredentials.results.map((credential) => ({
-              id: credential.id,
-              tokenHash: credential.token_hash,
-              expiresAt: credential.expires_at,
-              capabilities: JSON.parse(credential.capabilities),
+            v: 2,
+            e: environment,
+            c: applicationCredentials.results.map((credential) => ({
+              i: credential.id,
+              h: credential.token_hash,
+              x: credential.expires_at,
+              a: (JSON.parse(credential.capabilities) as Array<{
+                actor: string
+                operations: string[]
+                rateLimitPerMinute: number
+                maxPayloadBytes: number
+              }>).map((capability) => [
+                capability.actor,
+                capability.operations,
+                capability.rateLimitPerMinute,
+                capability.maxPayloadBytes,
+              ]),
             })),
           }
           const eventRouterSecret = eventRouterWorker ? newTelemetryCredential() : null
