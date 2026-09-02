@@ -888,7 +888,17 @@ async function evaluateAlerts(env: Env) {
       const since = now() - rule.window_minutes * 60_000
       let triggered = false; let summary = ''
       if (rule.kind === 'health_failure') {
-        const failed = await env.DB.prepare("SELECT layer, aggregate_type, deployment_id, release_id, environment FROM runtime_health_samples sample WHERE project_id = ? AND status = 'unhealthy' AND checked_at >= ? AND checked_at = (SELECT MAX(latest.checked_at) FROM runtime_health_samples latest WHERE latest.deployment_id = sample.deployment_id) ORDER BY checked_at DESC LIMIT 1").bind(project.id, since).first<Record<string, string>>()
+        const failed = await env.DB.prepare(`WITH latest AS (
+          SELECT deployment_id, MAX(checked_at) AS checked_at
+          FROM runtime_health_samples
+          WHERE project_id = ? AND checked_at >= ?
+          GROUP BY deployment_id
+        )
+        SELECT sample.layer, sample.aggregate_type, sample.deployment_id, sample.release_id, sample.environment
+        FROM runtime_health_samples sample
+        JOIN latest ON latest.deployment_id = sample.deployment_id AND latest.checked_at = sample.checked_at
+        WHERE sample.project_id = ? AND sample.status = 'unhealthy'
+        ORDER BY sample.checked_at DESC LIMIT 1`).bind(project.id, since, project.id).first<Record<string, string>>()
         triggered = Boolean(failed); summary = failed ? `${failed.layer} health failed${failed.aggregate_type ? ` for ${failed.aggregate_type}` : ''}.` : ''
       } else if (rule.kind === 'missing_telemetry') {
         const latest = await env.DB.prepare('SELECT MAX(occurred_at) AS latest FROM runtime_telemetry_events WHERE project_id = ?').bind(project.id).first<{ latest: number | null }>()
@@ -915,16 +925,30 @@ async function evaluateAlerts(env: Env) {
 async function enforceRetention(env: Env) {
   const policies = await env.DB.prepare('SELECT * FROM observability_policies').all<Record<string, number | string>>()
   for (const policy of policies.results) {
-    const workspaceId = String(policy.workspace_id); const day = 86_400_000
+    const workspaceId = String(policy.workspace_id); const day = 86_400_000; const timestamp = now()
+    const incidentCutoff = timestamp - Number(policy.incident_days) * day
     await env.DB.batch([
-      env.DB.prepare('DELETE FROM runtime_telemetry_events WHERE workspace_id = ? AND occurred_at < ?').bind(workspaceId, now() - Number(policy.raw_event_days) * day),
-      env.DB.prepare('DELETE FROM runtime_health_samples WHERE workspace_id = ? AND checked_at < ?').bind(workspaceId, now() - Number(policy.health_sample_days) * day),
-      env.DB.prepare('DELETE FROM aggregate_storage_samples WHERE workspace_id = ? AND checked_at < ?').bind(workspaceId, now() - Number(policy.health_sample_days) * day),
-      env.DB.prepare('DELETE FROM runtime_metric_buckets WHERE workspace_id = ? AND bucket_start < ?').bind(workspaceId, now() - Number(policy.metric_bucket_days) * day),
-      env.DB.prepare("DELETE FROM incidents WHERE workspace_id = ? AND status = 'resolved' AND resolved_at < ?").bind(workspaceId, now() - Number(policy.incident_days) * day),
-      env.DB.prepare('DELETE FROM usage_cost_estimates WHERE workspace_id = ? AND period_end < ?').bind(workspaceId, now() - Number(policy.metric_bucket_days) * day),
+      env.DB.prepare('DELETE FROM runtime_telemetry_events WHERE workspace_id = ? AND occurred_at < ?').bind(workspaceId, timestamp - Number(policy.raw_event_days) * day),
+      env.DB.prepare('DELETE FROM runtime_health_samples WHERE workspace_id = ? AND checked_at < ?').bind(workspaceId, timestamp - Number(policy.health_sample_days) * day),
+      env.DB.prepare('DELETE FROM aggregate_storage_samples WHERE workspace_id = ? AND checked_at < ?').bind(workspaceId, timestamp - Number(policy.health_sample_days) * day),
+      env.DB.prepare('DELETE FROM runtime_metric_buckets WHERE workspace_id = ? AND bucket_start < ?').bind(workspaceId, timestamp - Number(policy.metric_bucket_days) * day),
+      env.DB.prepare("DELETE FROM incident_events WHERE incident_id IN (SELECT id FROM incidents WHERE workspace_id = ? AND status = 'resolved' AND resolved_at < ?)").bind(workspaceId, incidentCutoff),
+      env.DB.prepare("DELETE FROM incidents WHERE workspace_id = ? AND status = 'resolved' AND resolved_at < ?").bind(workspaceId, incidentCutoff),
+      env.DB.prepare('DELETE FROM usage_cost_estimates WHERE workspace_id = ? AND period_end < ?').bind(workspaceId, timestamp - Number(policy.metric_bucket_days) * day),
     ])
   }
+
+  const timestamp = now(); const day = 86_400_000
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM runtime_event_batches WHERE received_at < ? AND NOT EXISTS (SELECT 1 FROM runtime_telemetry_events event WHERE event.batch_id = runtime_event_batches.id)').bind(timestamp - 7 * day),
+    env.DB.prepare('DELETE FROM telemetry_daily_usage WHERE updated_at < ?').bind(timestamp - 395 * day),
+    env.DB.prepare('DELETE FROM cli_device_authorizations WHERE expires_at < ?').bind(timestamp - 7 * day),
+    env.DB.prepare('DELETE FROM authentication_rate_limits WHERE last_failure_at < ?').bind(timestamp - day),
+    env.DB.prepare('DELETE FROM sensitive_action_usage WHERE window_started_at < ?').bind(timestamp - day),
+    env.DB.prepare('DELETE FROM application_sessions WHERE expires_at < ?').bind(timestamp - 7 * day),
+    env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(timestamp - 7 * day),
+    env.DB.prepare('DELETE FROM cli_access_tokens WHERE expires_at < ?').bind(timestamp - 7 * day),
+  ])
 }
 
 async function cloudflareErrorMessage(response: Response) {
@@ -2622,7 +2646,10 @@ export default {
     return respond({ success: false, message: 'Not found' }, 404)
   },
 
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(Promise.all([sampleRuntimeHealth(env), evaluateAlerts(env), enforceRetention(env)]).then(() => undefined))
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    const tasks = controller.cron === '17 3 * * *'
+      ? [enforceRetention(env)]
+      : [sampleRuntimeHealth(env), evaluateAlerts(env)]
+    ctx.waitUntil(Promise.all(tasks).then(() => undefined))
   },
 }

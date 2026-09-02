@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const migration = readFileSync(new URL('../migrations/0013_workspace_and_production_readiness.sql', import.meta.url), 'utf8')
+const retentionMigration = readFileSync(new URL('../migrations/0017_observability_retention_indexes.sql', import.meta.url), 'utf8')
 const control = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8')
+const controlConfig = readFileSync(new URL('../../wrangler.control-plane.toml', import.meta.url), 'utf8')
 const hosting = readFileSync(new URL('../../hosting/worker.js', import.meta.url), 'utf8')
 
 test('seeds bounded role capabilities and protects the final owner', () => {
@@ -42,6 +44,15 @@ test('keeps scheduled monitoring shallow while retaining explicit deep health ch
   assert.match(scheduledHealth, /const endpoint = `\$\{deployment\.runtime_url\}\/health`/)
   assert.doesNotMatch(scheduledHealth, /deep=1/)
   assert.match(control, /fetch\(`\$\{runtimeUrl\}\/health\?deep=1`/)
+})
+
+test('runs indexed observability retention separately from five-minute monitoring', () => {
+  assert.match(controlConfig, /crons = \["\*\/5 \* \* \* \*", "17 3 \* \* \*"\]/)
+  assert.match(control, /controller\.cron === '17 3 \* \* \*'/)
+  assert.match(retentionMigration, /runtime_telemetry_events_workspace_time_idx/)
+  assert.match(retentionMigration, /runtime_health_samples_workspace_time_idx/)
+  assert.match(retentionMigration, /runtime_telemetry_events_batch_idx/)
+  assert.match(control, /NOT EXISTS \(SELECT 1 FROM runtime_telemetry_events event WHERE event\.batch_id = runtime_event_batches\.id\)/)
 })
 
 test('keeps encrypted secrets out of environment read responses', () => {

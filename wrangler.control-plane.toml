@@ -5,7 +5,7 @@ compatibility_flags = ["global_fetch_strictly_public"]
 workers_dev = true
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/5 * * * *", "17 3 * * *"]
 
 [vars]
 ALLOWED_ORIGIN = "https://runtime.getlacify.com"
