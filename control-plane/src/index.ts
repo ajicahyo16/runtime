@@ -790,6 +790,15 @@ interface RuntimeHealthLayer {
   tables?: unknown
 }
 
+interface RuntimeHealthSample {
+  layer: 'worker' | 'durable_object' | 'sqlite'
+  aggregateType: string | null
+  status: 'healthy' | 'unhealthy'
+  latencyMs: number
+  statusCode: number | null
+  message: string
+}
+
 const healthSampleIntervalMs = 4 * 60 * 1000
 const healthStaleAfterMs = 10 * 60 * 1000
 
@@ -814,17 +823,29 @@ async function persistRuntimeHealth(env: Env, deployment: HealthDeployment) {
   const identityMatches = !payload?.deploymentId || (payload.deploymentId === deployment.id && payload.releaseId === deployment.release_id)
   const reportedLayers = Array.isArray(payload?.layers) ? payload.layers.filter((layer) => layer?.layer === 'worker' || layer?.layer === 'durable_object' || layer?.layer === 'sqlite') : []
   const layers = reportedLayers.length ? reportedLayers : [{ layer: 'worker', ok: Boolean(response?.ok), durationMs: latencyMs }]
-  const statements = layers.map((layer) => {
+  const samples: RuntimeHealthSample[] = layers.map((layer) => {
     const layerName = layer.layer as 'worker' | 'durable_object' | 'sqlite'
     const aggregateType = typeof layer.aggregateType === 'string' ? layer.aggregateType : null
     const healthy = response?.ok === true && identityMatches && layer.ok === true
     const layerLatency = Number.isSafeInteger(layer.durationMs) && Number(layer.durationMs) >= 0 ? Number(layer.durationMs) : latencyMs
     const message = healthy ? `${layerName.replace('_', ' ')} health check passed.` : !response ? 'Health endpoint was unreachable.' : !identityMatches ? 'Runtime identity did not match its deployment.' : `${layerName.replace('_', ' ')} health check failed.`
-    return env.DB.prepare(`INSERT INTO runtime_health_samples
+    return { layer: layerName, aggregateType, status: healthy ? 'healthy' : 'unhealthy', latencyMs: layerLatency, statusCode: response?.status ?? null, message }
+  })
+  const statements = samples.map((sample) => env.DB.prepare(`INSERT INTO runtime_health_samples
       (id, workspace_id, project_id, release_id, deployment_id, environment, layer, aggregate_type, status, latency_ms, status_code, endpoint, message, checked_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(id('health'), deployment.workspace_id, deployment.project_id, deployment.release_id, deployment.id, deployment.environment, layerName, aggregateType, healthy ? 'healthy' : 'unhealthy', layerLatency, response?.status ?? null, endpoint, message, checkedAt)
-  })
+      .bind(id('health'), deployment.workspace_id, deployment.project_id, deployment.release_id, deployment.id, deployment.environment, sample.layer, sample.aggregateType, sample.status, sample.latencyMs, sample.statusCode, endpoint, sample.message, checkedAt))
+  const latest = samples.find((sample) => sample.status === 'unhealthy') || samples[0]
+  if (latest) statements.push(env.DB.prepare(`INSERT INTO runtime_health_latest
+      (deployment_id, workspace_id, project_id, release_id, environment, layer, aggregate_type, status, checked_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(deployment_id) DO UPDATE SET
+        workspace_id=excluded.workspace_id, project_id=excluded.project_id,
+        release_id=excluded.release_id, environment=excluded.environment,
+        layer=excluded.layer, aggregate_type=excluded.aggregate_type,
+        status=excluded.status, checked_at=excluded.checked_at
+      WHERE excluded.checked_at >= runtime_health_latest.checked_at`)
+      .bind(deployment.id, deployment.workspace_id, deployment.project_id, deployment.release_id, deployment.environment, latest.layer, latest.aggregateType, latest.status, checkedAt))
   if (statements.length) await env.DB.batch(statements)
 }
 
@@ -888,17 +909,10 @@ async function evaluateAlerts(env: Env) {
       const since = now() - rule.window_minutes * 60_000
       let triggered = false; let summary = ''
       if (rule.kind === 'health_failure') {
-        const failed = await env.DB.prepare(`WITH latest AS (
-          SELECT deployment_id, MAX(checked_at) AS checked_at
-          FROM runtime_health_samples
-          WHERE project_id = ? AND checked_at >= ?
-          GROUP BY deployment_id
-        )
-        SELECT sample.layer, sample.aggregate_type, sample.deployment_id, sample.release_id, sample.environment
-        FROM runtime_health_samples sample
-        JOIN latest ON latest.deployment_id = sample.deployment_id AND latest.checked_at = sample.checked_at
-        WHERE sample.project_id = ? AND sample.status = 'unhealthy'
-        ORDER BY sample.checked_at DESC LIMIT 1`).bind(project.id, since, project.id).first<Record<string, string>>()
+        const failed = await env.DB.prepare(`SELECT layer, aggregate_type, deployment_id, release_id, environment
+          FROM runtime_health_latest
+          WHERE project_id = ? AND status = 'unhealthy' AND checked_at >= ?
+          ORDER BY checked_at DESC LIMIT 1`).bind(project.id, since).first<Record<string, string>>()
         triggered = Boolean(failed); summary = failed ? `${failed.layer} health failed${failed.aggregate_type ? ` for ${failed.aggregate_type}` : ''}.` : ''
       } else if (rule.kind === 'missing_telemetry') {
         const latest = await env.DB.prepare('SELECT MAX(occurred_at) AS latest FROM runtime_telemetry_events WHERE project_id = ?').bind(project.id).first<{ latest: number | null }>()
@@ -2647,9 +2661,9 @@ export default {
   },
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    const tasks = controller.cron === '17 3 * * *'
-      ? [enforceRetention(env)]
-      : [sampleRuntimeHealth(env), evaluateAlerts(env)]
+    const isRetentionRun = controller.cron === '17 3 * * *'
+    const tasks: Promise<unknown>[] = isRetentionRun ? [enforceRetention(env)] : [sampleRuntimeHealth(env)]
+    if (!isRetentionRun && Math.floor(controller.scheduledTime / 60_000) % 15 === 0) tasks.push(evaluateAlerts(env))
     ctx.waitUntil(Promise.all(tasks).then(() => undefined))
   },
 }

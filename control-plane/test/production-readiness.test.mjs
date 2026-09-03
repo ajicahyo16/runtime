@@ -4,6 +4,7 @@ import test from 'node:test'
 
 const migration = readFileSync(new URL('../migrations/0013_workspace_and_production_readiness.sql', import.meta.url), 'utf8')
 const retentionMigration = readFileSync(new URL('../migrations/0017_observability_retention_indexes.sql', import.meta.url), 'utf8')
+const latestHealthMigration = readFileSync(new URL('../migrations/0018_latest_runtime_health.sql', import.meta.url), 'utf8')
 const control = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8')
 const controlConfig = readFileSync(new URL('../../wrangler.control-plane.toml', import.meta.url), 'utf8')
 const hosting = readFileSync(new URL('../../hosting/worker.js', import.meta.url), 'utf8')
@@ -53,6 +54,15 @@ test('runs indexed observability retention separately from five-minute monitorin
   assert.match(retentionMigration, /runtime_health_samples_workspace_time_idx/)
   assert.match(retentionMigration, /runtime_telemetry_events_batch_idx/)
   assert.match(control, /NOT EXISTS \(SELECT 1 FROM runtime_telemetry_events event WHERE event\.batch_id = runtime_event_batches\.id\)/)
+})
+
+test('evaluates alerts every fifteen minutes from a bounded latest-health projection', () => {
+  assert.match(latestHealthMigration, /CREATE TABLE IF NOT EXISTS runtime_health_latest/)
+  assert.match(latestHealthMigration, /runtime_health_latest_project_status_time_idx/)
+  assert.match(control, /ON CONFLICT\(deployment_id\) DO UPDATE SET/)
+  assert.match(control, /FROM runtime_health_latest/)
+  assert.match(control, /controller\.scheduledTime \/ 60_000\) % 15 === 0/)
+  assert.doesNotMatch(control, /WITH latest AS \(\s*SELECT deployment_id, MAX\(checked_at\)/)
 })
 
 test('keeps encrypted secrets out of environment read responses', () => {
