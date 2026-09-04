@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, Boxes, Clock, Database, ExternalLink, Gauge, GitBranch, Info, ListChecks, Search, Server, Timer, TriangleAlert } from 'lucide-react'
+import { Activity, AppWindow, Boxes, CheckCircle2, ChevronDown, Clock, CloudCog, Cpu, Database, ExternalLink, Gauge, GitBranch, Info, ListChecks, Search, Server, Timer, TriangleAlert } from 'lucide-react'
 import type { Actor } from '@/components/ActorCard'
 import { loadContracts } from '@/lib/contracts'
 
@@ -70,6 +70,14 @@ const healthStyles = {
   unknown: 'monitor-health-status--unknown',
 }
 
+const healthLabels = {
+  healthy: 'All systems healthy',
+  degraded: 'Needs attention',
+  unhealthy: 'Service issue',
+  deploying: 'Deployment in progress',
+  unknown: 'Waiting for data',
+}
+
 function formatLatency(value: number | null) {
   if (value === null) return '—'
   return value < 1_000 ? `${Math.round(value)} ms` : `${(value / 1_000).toFixed(2)} s`
@@ -77,6 +85,20 @@ function formatLatency(value: number | null) {
 
 function formatErrorRate(value: number | null) {
   return value === null ? '—' : `${(value * 100).toFixed(value ? 1 : 0)}%`
+}
+
+function formatCompactNumber(value: number | undefined) {
+  if (value === undefined) return '—'
+  return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
+
+function formatRelativeTime(value: number) {
+  if (!value) return 'No check yet'
+  const elapsed = Date.now() - value
+  if (elapsed < 60_000) return 'Just now'
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m ago`
+  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h ago`
+  return `${Math.floor(elapsed / 86_400_000)}d ago`
 }
 
 function commandsOf(actor: Actor) {
@@ -186,6 +208,27 @@ export function MonitorView({ project, onOpenReleases }: { project: string; onOp
   const releases = [...new Map(deployments.map((deployment) => [deployment.releaseId, deployment])).values()]
   const aggregates = actors.map((actor) => actor.aggregateType).filter((value): value is string => Boolean(value))
   const actions = [...new Set(actors.flatMap((actor) => commandsOf(actor)))]
+  const primaryHealth = environments.find((item) => item.environment === 'production' && item.deployment)
+    || environments.find((item) => item.environment === 'staging' && item.deployment)
+    || environments.find((item) => item.environment === 'dev' && item.deployment)
+  const overallStatus: EnvironmentHealth['status'] = !telemetryConnected || !primaryHealth
+    ? 'unknown'
+    : environments.some((item) => item.deployment && item.status === 'unhealthy')
+      ? 'unhealthy'
+      : environments.some((item) => item.deployment && (item.status === 'degraded' || item.stale))
+        ? 'degraded'
+        : environments.some((item) => item.deployment && item.status === 'deploying')
+          ? 'deploying'
+          : primaryHealth.status
+  const latestHealthCheck = environments.flatMap((item) => item.layers).reduce((latest, layer) => Math.max(latest, layer.checkedAt), 0)
+  const activeIncidents = operations?.incidents.filter((incident) => incident.status !== 'resolved') || []
+  const nextStep = overallStatus === 'healthy' && !activeIncidents.length
+    ? { title: 'No action needed', detail: `Your ${primaryHealth ? environmentLabels[primaryHealth.environment].toLowerCase() : 'runtime'} environment is responding normally.` }
+    : activeIncidents.length
+      ? { title: `Review ${activeIncidents.length} active incident${activeIncidents.length === 1 ? '' : 's'}`, detail: activeIncidents[0].title }
+      : overallStatus === 'unknown'
+        ? { title: 'Connect a deployed release', detail: 'Deploy an environment to start live health checks and runtime metrics.' }
+        : { title: 'Check runtime health', detail: primaryHealth?.lastFailure?.message || 'One or more runtime layers need attention.' }
   const exportParams = new URLSearchParams({ project, range: timeRange })
   if (environmentFilter) exportParams.set('environment', environmentFilter)
   if (releaseFilter) exportParams.set('release', releaseFilter)
@@ -194,14 +237,75 @@ export function MonitorView({ project, onOpenReleases }: { project: string; onOp
 
   return (
     <div className="monitor-view">
-      <p className="monitor-demo-notice" role="status">
-        <Info className="size-4" />
-        {source === 'local'
-          ? 'Local Workspace — this view reads business objects stored in this browser. Runtime telemetry needs the Control API.'
-          : telemetryConnected
-            ? `Control API connected — ${deployments.length} recent deployment job${deployments.length === 1 ? '' : 's'} and ${events.length} runtime event${events.length === 1 ? '' : 's'} loaded.`
-            : 'Contract data is connected. Runtime telemetry is currently unavailable.'}
-      </p>
+      <section className={`monitor-overview monitor-overview--${overallStatus}`} aria-labelledby="runtime-overview-heading">
+        <div className="monitor-overview__heading">
+          <div>
+            <span className="monitor-overview__eyebrow">Live runtime overview</span>
+            <h1 id="runtime-overview-heading">{project}</h1>
+            <p>{overallStatus === 'healthy'
+              ? 'Requests are flowing normally through every observed runtime layer.'
+              : overallStatus === 'unknown'
+                ? 'Your architecture is ready. Live status appears after a release is deployed.'
+                : 'The overview below shows where your runtime needs attention.'}</p>
+          </div>
+          <span className={`monitor-overview__status ${healthStyles[overallStatus]}`}>
+            <span className="monitor-overview__status-dot" />
+            {healthLabels[overallStatus]}
+          </span>
+        </div>
+
+        <div className="monitor-flow" aria-label="Request path from application to storage">
+          <article className="monitor-flow__node monitor-flow__node--healthy">
+            <span className="monitor-flow__icon"><AppWindow aria-hidden="true" /></span>
+            <span><small>Your application</small><strong>{project}</strong></span>
+          </article>
+          <div className={`monitor-flow__link monitor-flow__link--${telemetryConnected ? 'active' : 'idle'}`} aria-hidden="true"><i /><i /></div>
+          <article className={`monitor-flow__node monitor-flow__node--${telemetryConnected ? 'healthy' : 'unknown'}`}>
+            <span className="monitor-flow__icon"><CloudCog aria-hidden="true" /></span>
+            <span><small>API gateway</small><strong>{telemetryConnected ? 'Connected' : 'Awaiting connection'}</strong></span>
+          </article>
+          <div className={`monitor-flow__link monitor-flow__link--${overallStatus === 'healthy' ? 'active' : 'idle'}`} aria-hidden="true"><i /><i /></div>
+          <article className={`monitor-flow__node monitor-flow__node--${overallStatus}`}>
+            <span className="monitor-flow__icon"><Cpu aria-hidden="true" /></span>
+            <span><small>Lacify runtime</small><strong>{primaryHealth ? environmentLabels[primaryHealth.environment] : 'Not deployed'}</strong></span>
+          </article>
+          <div className={`monitor-flow__link monitor-flow__link--${overallStatus === 'healthy' ? 'active' : 'idle'}`} aria-hidden="true"><i /><i /></div>
+          <article className={`monitor-flow__node monitor-flow__node--${overallStatus}`}>
+            <span className="monitor-flow__icon"><Database aria-hidden="true" /></span>
+            <span><small>Private storage</small><strong>Durable Object + SQLite</strong></span>
+          </article>
+        </div>
+
+        <div className="monitor-overview__metrics" aria-label="Key runtime metrics">
+          <article><span>Requests</span><strong>{formatCompactNumber(metrics?.summary.requests)}</strong><small>{timeRange === '24h' ? 'last 24 hours' : `last ${timeRange}`}</small></article>
+          <article><span>Average latency</span><strong>{formatLatency(metrics?.summary.averageLatencyMs ?? null)}</strong><small>P95 {formatLatency(metrics?.summary.p95LatencyMs ?? null)}</small></article>
+          <article><span>Error rate</span><strong>{formatErrorRate(metrics?.summary.errorRate ?? null)}</strong><small>{metrics ? `${metrics.summary.errors.toLocaleString()} failed requests` : 'No telemetry yet'}</small></article>
+          <article><span>Active incidents</span><strong>{operations ? activeIncidents.length : '—'}</strong><small>Last check {formatRelativeTime(latestHealthCheck)}</small></article>
+        </div>
+
+        <div className="monitor-next-step">
+          <span className={`monitor-next-step__icon monitor-next-step__icon--${overallStatus}`}>
+            {overallStatus === 'healthy' ? <CheckCircle2 aria-hidden="true" /> : <TriangleAlert aria-hidden="true" />}
+          </span>
+          <span><small>Recommended next step</small><strong>{nextStep.title}</strong><p>{nextStep.detail}</p></span>
+          {overallStatus === 'unknown' && onOpenReleases && <button type="button" onClick={onOpenReleases}>Open releases <GitBranch aria-hidden="true" /></button>}
+        </div>
+      </section>
+
+      <details className="monitor-technical">
+        <summary>
+          <span><Info aria-hidden="true" /><span><strong>Technical details</strong><small>Environments, command metrics, storage, incidents, costs, and event logs</small></span></span>
+          <ChevronDown className="monitor-technical__chevron" aria-hidden="true" />
+        </summary>
+        <div className="monitor-technical__content">
+          <p className="monitor-demo-notice" role="status">
+            <Info className="size-4" />
+            {source === 'local'
+              ? 'Local Workspace — this view reads business objects stored in this browser. Runtime telemetry needs the Control API.'
+              : telemetryConnected
+                ? `Control API connected — ${deployments.length} recent deployment job${deployments.length === 1 ? '' : 's'} and ${events.length} runtime event${events.length === 1 ? '' : 's'} loaded.`
+                : 'Contract data is connected. Runtime telemetry is currently unavailable.'}
+          </p>
 
       <section className="monitor-environments" aria-label="Runtime environment health">
         {(['dev', 'staging', 'production'] as const).map((environment) => {
@@ -355,6 +459,8 @@ export function MonitorView({ project, onOpenReleases }: { project: string; onOp
           </div>
         </section>
       </div>
+        </div>
+      </details>
     </div>
   )
 }
