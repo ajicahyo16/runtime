@@ -71,6 +71,11 @@ const telemetryMaxEventsPerBatch = 50
 const telemetryMaxPastAgeMs = 24 * 60 * 60 * 1000
 const telemetryMaxFutureSkewMs = 5 * 60 * 1000
 
+function monthBucketStart(value: number) {
+  const date = new Date(value)
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)
+}
+
 interface TelemetryEventInput {
   id?: unknown
   occurredAt?: unknown
@@ -879,17 +884,17 @@ async function ensureObservabilityDefaults(env: Env, workspaceId: string, projec
 }
 
 async function refreshCostEstimate(env: Env, workspaceId: string, projectId: string) {
-  const current = new Date(now())
-  const periodStart = Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), 1)
   const periodEnd = now()
+  const periodStart = monthBucketStart(periodEnd)
   const pricing = await env.DB.prepare('SELECT id, prices FROM pricing_versions WHERE effective_at <= ? ORDER BY effective_at DESC LIMIT 1').bind(periodEnd).first<{ id: string; prices: string }>()
   if (!pricing) return
   const prices = JSON.parse(pricing.prices) as Record<string, number>
-  const usage = await env.DB.prepare(`SELECT environment, SUM(request_count) AS requests FROM runtime_metric_buckets WHERE workspace_id = ? AND project_id = ? AND bucket_start >= ? GROUP BY environment`).bind(workspaceId, projectId, periodStart).all<{ environment: string; requests: number }>()
+  const usage = await env.DB.prepare(`SELECT environment, requests, sqlite_reads, sqlite_writes
+    FROM runtime_usage_monthly
+    WHERE workspace_id = ? AND project_id = ? AND period_start = ?`).bind(workspaceId, projectId, periodStart).all<{ environment: string; requests: number; sqlite_reads: number; sqlite_writes: number }>()
   for (const row of usage.results) {
-    const sqlite = await env.DB.prepare('SELECT SUM(sqlite_reads) AS reads, SUM(sqlite_writes) AS writes FROM runtime_telemetry_events WHERE workspace_id = ? AND project_id = ? AND environment = ? AND occurred_at >= ?').bind(workspaceId, projectId, row.environment, periodStart).first<{ reads: number | null; writes: number | null }>()
-    const storage = await env.DB.prepare('SELECT SUM(storage_bytes) AS bytes FROM aggregate_storage_samples s WHERE workspace_id = ? AND project_id = ? AND environment = ? AND checked_at = (SELECT MAX(s2.checked_at) FROM aggregate_storage_samples s2 WHERE s2.deployment_id = s.deployment_id)').bind(workspaceId, projectId, row.environment).first<{ bytes: number | null }>()
-    const requests = Number(row.requests || 0); const reads = Number(sqlite?.reads || 0); const writes = Number(sqlite?.writes || 0); const storageGb = Number(storage?.bytes || 0) / 1_073_741_824
+    const storage = await env.DB.prepare('SELECT SUM(storage_bytes) AS bytes FROM aggregate_storage_latest WHERE workspace_id = ? AND project_id = ? AND environment = ?').bind(workspaceId, projectId, row.environment).first<{ bytes: number | null }>()
+    const requests = Number(row.requests || 0); const reads = Number(row.sqlite_reads || 0); const writes = Number(row.sqlite_writes || 0); const storageGb = Number(storage?.bytes || 0) / 1_073_741_824
     const costs = { workerRequestsUsd: requests / 1_000_000 * prices.workerRequestsPerMillion, durableObjectRequestsUsd: requests / 1_000_000 * prices.doRequestsPerMillion, sqliteReadsUsd: reads / 1_000_000 * prices.sqliteReadsPerMillion, sqliteWritesUsd: writes / 1_000_000 * prices.sqliteWritesPerMillion, sqliteStorageUsd: storageGb * prices.sqliteStorageGbMonth }
     const totalUsd = Object.values(costs).reduce((sum, value) => sum + value, 0)
     await env.DB.prepare(`INSERT INTO usage_cost_estimates (id, workspace_id, project_id, environment, pricing_version_id, period_start, period_end, observed_usage, estimated_cost, caveats, calculated_at)
@@ -918,7 +923,7 @@ async function evaluateAlerts(env: Env) {
         const latest = await env.DB.prepare('SELECT MAX(occurred_at) AS latest FROM runtime_telemetry_events WHERE project_id = ?').bind(project.id).first<{ latest: number | null }>()
         triggered = Boolean(latest?.latest && latest.latest < since); summary = 'Runtime telemetry has stopped arriving.'
       } else if (rule.kind === 'storage_growth') {
-        const storage = await env.DB.prepare('SELECT storage_bytes, aggregate_type FROM aggregate_storage_samples WHERE project_id = ? ORDER BY checked_at DESC LIMIT 1').bind(project.id).first<{ storage_bytes: number; aggregate_type: string }>()
+        const storage = await env.DB.prepare('SELECT storage_bytes, aggregate_type FROM aggregate_storage_latest WHERE project_id = ? ORDER BY checked_at DESC LIMIT 1').bind(project.id).first<{ storage_bytes: number; aggregate_type: string }>()
         triggered = Boolean(storage && storage.storage_bytes >= rule.threshold); summary = storage ? `${storage.aggregate_type} storage reached ${storage.storage_bytes} bytes.` : ''
       } else {
         const metric = await env.DB.prepare('SELECT SUM(request_count) AS requests, SUM(error_count) AS errors, SUM(duration_sum_ms) AS duration FROM runtime_metric_buckets WHERE project_id = ? AND bucket_start >= ?').bind(project.id, metricBucketStart(since)).first<{ requests: number; errors: number; duration: number }>()
@@ -945,6 +950,7 @@ async function enforceRetention(env: Env) {
       env.DB.prepare('DELETE FROM runtime_telemetry_events WHERE workspace_id = ? AND occurred_at < ?').bind(workspaceId, timestamp - Number(policy.raw_event_days) * day),
       env.DB.prepare('DELETE FROM runtime_health_samples WHERE workspace_id = ? AND checked_at < ?').bind(workspaceId, timestamp - Number(policy.health_sample_days) * day),
       env.DB.prepare('DELETE FROM aggregate_storage_samples WHERE workspace_id = ? AND checked_at < ?').bind(workspaceId, timestamp - Number(policy.health_sample_days) * day),
+      env.DB.prepare('DELETE FROM runtime_partition_activity WHERE workspace_id = ? AND last_seen_at < ?').bind(workspaceId, timestamp - 7 * day),
       env.DB.prepare('DELETE FROM runtime_metric_buckets WHERE workspace_id = ? AND bucket_start < ?').bind(workspaceId, timestamp - Number(policy.metric_bucket_days) * day),
       env.DB.prepare("DELETE FROM incident_events WHERE incident_id IN (SELECT id FROM incidents WHERE workspace_id = ? AND status = 'resolved' AND resolved_at < ?)").bind(workspaceId, incidentCutoff),
       env.DB.prepare("DELETE FROM incidents WHERE workspace_id = ? AND status = 'resolved' AND resolved_at < ?").bind(workspaceId, incidentCutoff),
@@ -1331,11 +1337,46 @@ export default {
       const replayedEvent = await env.DB.prepare(`SELECT id FROM runtime_telemetry_events WHERE id IN (${placeholders}) LIMIT 1`).bind(...events.map((event) => event.id)).first()
       if (replayedEvent) return respond({ success: false, message: 'One or more telemetry events have already been accepted.' }, 409)
 
+      const partitionActivity = new Map<string, { aggregateType: string; partitionKeyHash: string; requests: number; errors: number; durationMs: number; sqliteReads: number; sqliteWrites: number; lastSeenAt: number }>()
+      for (const event of events) {
+        const key = `${event.aggregateType}:${event.partitionKeyHash}`
+        const summary = partitionActivity.get(key) || { aggregateType: event.aggregateType, partitionKeyHash: event.partitionKeyHash, requests: 0, errors: 0, durationMs: 0, sqliteReads: 0, sqliteWrites: 0, lastSeenAt: 0 }
+        summary.requests += 1
+        summary.errors += event.outcome === 'success' ? 0 : 1
+        summary.durationMs += event.durationMs
+        summary.sqliteReads += event.sqliteReads
+        summary.sqliteWrites += event.sqliteWrites
+        summary.lastSeenAt = Math.max(summary.lastSeenAt, event.occurredAt)
+        partitionActivity.set(key, summary)
+      }
+      const monthlyReads = events.reduce((sum, event) => sum + event.sqliteReads, 0)
+      const monthlyWrites = events.reduce((sum, event) => sum + event.sqliteWrites, 0)
+
       try {
         await env.DB.batch([
           env.DB.prepare('INSERT INTO runtime_event_batches (id, credential_id, deployment_id, event_count, received_at) VALUES (?, ?, ?, ?, ?)').bind(body.batchId, credential.credential_id, credential.deployment_id, events.length, receivedAt),
           env.DB.prepare(`INSERT INTO telemetry_daily_usage (workspace_id, day, accepted_events, dropped_events, updated_at) VALUES (?, ?, ?, 0, ?)
             ON CONFLICT(workspace_id, day) DO UPDATE SET accepted_events = accepted_events + excluded.accepted_events, updated_at = excluded.updated_at`).bind(credential.workspace_id, usageDay, events.length, receivedAt),
+          env.DB.prepare(`INSERT INTO runtime_usage_monthly
+            (workspace_id, project_id, environment, period_start, requests, sqlite_reads, sqlite_writes, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workspace_id, project_id, environment, period_start) DO UPDATE SET
+              requests = requests + excluded.requests,
+              sqlite_reads = sqlite_reads + excluded.sqlite_reads,
+              sqlite_writes = sqlite_writes + excluded.sqlite_writes,
+              updated_at = excluded.updated_at`)
+            .bind(credential.workspace_id, credential.project_id, credential.environment, monthBucketStart(receivedAt), events.length, monthlyReads, monthlyWrites, receivedAt),
+          ...[...partitionActivity.values()].map((summary) => env.DB.prepare(`INSERT INTO runtime_partition_activity
+            (workspace_id, project_id, environment, aggregate_type, partition_key_hash, requests, errors, duration_sum_ms, sqlite_reads, sqlite_writes, last_seen_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workspace_id, project_id, environment, aggregate_type, partition_key_hash) DO UPDATE SET
+              requests = requests + excluded.requests,
+              errors = errors + excluded.errors,
+              duration_sum_ms = duration_sum_ms + excluded.duration_sum_ms,
+              sqlite_reads = sqlite_reads + excluded.sqlite_reads,
+              sqlite_writes = sqlite_writes + excluded.sqlite_writes,
+              last_seen_at = MAX(last_seen_at, excluded.last_seen_at)`)
+            .bind(credential.workspace_id, credential.project_id, credential.environment, summary.aggregateType, summary.partitionKeyHash, summary.requests, summary.errors, summary.durationMs, summary.sqliteReads, summary.sqliteWrites, summary.lastSeenAt)),
           ...events.flatMap((event) => {
             const bucketColumn = `duration_b${durationBucket(event.durationMs)}`
             return [
@@ -1357,10 +1398,24 @@ export default {
                   ${bucketColumn} = ${bucketColumn} + 1,
                   updated_at = excluded.updated_at`)
                 .bind(credential.workspace_id, credential.project_id, credential.release_id, credential.deployment_id, credential.environment, event.aggregateType, event.action, metricBucketStart(event.occurredAt), event.outcome === 'success' ? 1 : 0, event.outcome === 'success' ? 0 : 1, event.durationMs, event.durationMs, event.durationMs, receivedAt),
-              ...(event.storageBytes === null ? [] : [env.DB.prepare(`INSERT INTO aggregate_storage_samples
-                (id, workspace_id, project_id, release_id, deployment_id, environment, aggregate_type, storage_bytes, table_stats, checked_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-                .bind(id('storage'), credential.workspace_id, credential.project_id, credential.release_id, credential.deployment_id, credential.environment, event.aggregateType, event.storageBytes, JSON.stringify(event.tableStats), event.occurredAt)]),
+              ...(event.storageBytes === null ? [] : [
+                env.DB.prepare(`INSERT INTO aggregate_storage_samples
+                  (id, workspace_id, project_id, release_id, deployment_id, environment, aggregate_type, storage_bytes, table_stats, checked_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+                  .bind(id('storage'), credential.workspace_id, credential.project_id, credential.release_id, credential.deployment_id, credential.environment, event.aggregateType, event.storageBytes, JSON.stringify(event.tableStats), event.occurredAt),
+                env.DB.prepare(`INSERT INTO aggregate_storage_latest
+                  (workspace_id, project_id, release_id, deployment_id, environment, aggregate_type, storage_bytes, previous_storage_bytes, table_stats, checked_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                  ON CONFLICT(workspace_id, project_id, environment, aggregate_type) DO UPDATE SET
+                    release_id = excluded.release_id,
+                    deployment_id = excluded.deployment_id,
+                    previous_storage_bytes = aggregate_storage_latest.storage_bytes,
+                    storage_bytes = excluded.storage_bytes,
+                    table_stats = excluded.table_stats,
+                    checked_at = excluded.checked_at
+                  WHERE excluded.checked_at >= aggregate_storage_latest.checked_at`)
+                  .bind(credential.workspace_id, credential.project_id, credential.release_id, credential.deployment_id, credential.environment, event.aggregateType, event.storageBytes, JSON.stringify(event.tableStats), event.occurredAt),
+              ]),
             ]
           }),
         ])
@@ -2494,12 +2549,16 @@ export default {
 
     if (url.pathname === '/api/aggregate-operations' && request.method === 'GET') {
       const projectId=url.searchParams.get('project')||''; const project=await ownedProject(env,workspaceId,projectId); if(!project)return respond({success:false,message:'Project not found.'},404)
-      await ensureObservabilityDefaults(env,workspaceId,projectId); await refreshCostEstimate(env,workspaceId,projectId)
+      await ensureObservabilityDefaults(env,workspaceId,projectId)
       const [storage,partitions,incidents,rules,costs,incidentEvents]=await Promise.all([
-        env.DB.prepare(`SELECT aggregate_type,environment,storage_bytes,table_stats,checked_at,
-          (SELECT previous.storage_bytes FROM aggregate_storage_samples previous WHERE previous.project_id=s.project_id AND previous.environment=s.environment AND previous.aggregate_type=s.aggregate_type AND previous.checked_at<s.checked_at ORDER BY previous.checked_at DESC LIMIT 1) AS previous_storage_bytes
-          FROM aggregate_storage_samples s WHERE project_id=? AND checked_at=(SELECT MAX(s2.checked_at) FROM aggregate_storage_samples s2 WHERE s2.project_id=s.project_id AND s2.environment=s.environment AND s2.aggregate_type=s.aggregate_type) ORDER BY storage_bytes DESC`).bind(projectId).all(),
-        env.DB.prepare(`SELECT aggregate_type,substr(partition_key_hash,1,12) AS partition_hash,COUNT(*) AS requests,SUM(CASE WHEN outcome='success' THEN 0 ELSE 1 END) AS errors,ROUND(AVG(duration_ms),2) AS average_latency_ms,SUM(sqlite_reads) AS sqlite_reads,SUM(sqlite_writes) AS sqlite_writes FROM runtime_telemetry_events WHERE project_id=? AND occurred_at>=? GROUP BY aggregate_type,partition_key_hash ORDER BY requests DESC LIMIT 100`).bind(projectId,now()-7*86400000).all(),
+        env.DB.prepare(`SELECT aggregate_type, environment, storage_bytes, previous_storage_bytes, table_stats, checked_at
+          FROM aggregate_storage_latest WHERE project_id = ? ORDER BY storage_bytes DESC`).bind(projectId).all(),
+        env.DB.prepare(`SELECT aggregate_type, substr(partition_key_hash, 1, 12) AS partition_hash,
+          requests, errors, ROUND(CAST(duration_sum_ms AS REAL) / MAX(requests, 1), 2) AS average_latency_ms,
+          sqlite_reads, sqlite_writes
+          FROM runtime_partition_activity
+          WHERE project_id = ? AND last_seen_at >= ?
+          ORDER BY requests DESC LIMIT 100`).bind(projectId,now()-7*86400000).all(),
         env.DB.prepare('SELECT id,rule_id,environment,status,severity,title,summary,opened_at,acknowledged_at,resolved_at,release_id,deployment_id FROM incidents WHERE project_id=? ORDER BY opened_at DESC LIMIT 50').bind(projectId).all(),
         env.DB.prepare('SELECT id,kind,severity,threshold,window_minutes,enabled FROM alert_rules WHERE project_id=? ORDER BY kind').bind(projectId).all(),
         env.DB.prepare('SELECT environment,pricing_version_id,period_start,period_end,observed_usage,estimated_cost,caveats,calculated_at FROM usage_cost_estimates WHERE project_id=? ORDER BY calculated_at DESC').bind(projectId).all(),

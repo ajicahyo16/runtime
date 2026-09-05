@@ -5,6 +5,7 @@ import test from 'node:test'
 const migration = readFileSync(new URL('../migrations/0013_workspace_and_production_readiness.sql', import.meta.url), 'utf8')
 const retentionMigration = readFileSync(new URL('../migrations/0017_observability_retention_indexes.sql', import.meta.url), 'utf8')
 const latestHealthMigration = readFileSync(new URL('../migrations/0018_latest_runtime_health.sql', import.meta.url), 'utf8')
+const boundedObservabilityMigration = readFileSync(new URL('../migrations/0019_bounded_observability_projections.sql', import.meta.url), 'utf8')
 const control = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8')
 const controlConfig = readFileSync(new URL('../../wrangler.control-plane.toml', import.meta.url), 'utf8')
 const hosting = readFileSync(new URL('../../hosting/worker.js', import.meta.url), 'utf8')
@@ -63,6 +64,32 @@ test('evaluates alerts every fifteen minutes from a bounded latest-health projec
   assert.match(control, /FROM runtime_health_latest/)
   assert.match(control, /controller\.scheduledTime \/ 60_000\) % 15 === 0/)
   assert.doesNotMatch(control, /WITH latest AS \(\s*SELECT deployment_id, MAX\(checked_at\)/)
+})
+
+test('keeps cost, storage, and partition dashboards on bounded projections', () => {
+  assert.match(boundedObservabilityMigration, /CREATE TABLE IF NOT EXISTS aggregate_storage_latest/)
+  assert.match(boundedObservabilityMigration, /CREATE TABLE IF NOT EXISTS runtime_usage_monthly/)
+  assert.match(boundedObservabilityMigration, /CREATE TABLE IF NOT EXISTS runtime_partition_activity/)
+  assert.match(boundedObservabilityMigration, /aggregate_storage_latest_project_time_idx/)
+  assert.match(boundedObservabilityMigration, /runtime_partition_activity_project_requests_idx/)
+
+  const costRefresh = control.slice(
+    control.indexOf('async function refreshCostEstimate'),
+    control.indexOf('async function evaluateAlerts'),
+  )
+  assert.match(costRefresh, /FROM runtime_usage_monthly/)
+  assert.match(costRefresh, /FROM aggregate_storage_latest/)
+  assert.doesNotMatch(costRefresh, /FROM runtime_telemetry_events/)
+  assert.doesNotMatch(costRefresh, /FROM aggregate_storage_samples/)
+
+  const operationsRoute = control.slice(
+    control.indexOf("if (url.pathname === '/api/aggregate-operations'"),
+    control.indexOf("if (url.pathname === '/api/telemetry-export'"),
+  )
+  assert.match(operationsRoute, /FROM aggregate_storage_latest/)
+  assert.match(operationsRoute, /FROM runtime_partition_activity/)
+  assert.doesNotMatch(operationsRoute, /refreshCostEstimate/)
+  assert.doesNotMatch(operationsRoute, /FROM runtime_telemetry_events/)
 })
 
 test('keeps encrypted secrets out of environment read responses', () => {
